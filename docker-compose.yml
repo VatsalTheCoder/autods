@@ -89,6 +89,9 @@ services:
       # Live code reload: edit a file on your Mac and uvicorn restarts itself.
       - ./app:/code/app
       - ./alembic:/code/alembic
+      # Mounted rather than baked into the image, so `make test` sees the
+      # tests you just edited and the production image stays free of them.
+      - ./tests:/code/tests
     depends_on:
       postgres:
         condition: service_healthy
@@ -144,6 +147,12 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
   postgres_data:
