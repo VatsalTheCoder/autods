@@ -11,6 +11,7 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app.api.routes import upload
 from app.core.config import get_settings
 from app.core.db import database_healthy
 from app.core.storage import storage_healthy
@@ -26,6 +27,9 @@ app = FastAPI(
     version="0.1.0",
     debug=settings.debug,
 )
+
+
+app.include_router(upload.router)
 
 
 class HealthResponse(BaseModel):

@@ -72,7 +72,7 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 ## Build progress
 
 - [x] **Section 0** — Skeleton: Docker Compose, config, S3 abstraction, health check
-- [ ] **Section 1** — Upload: CSV to S3, jobs and artifacts tables
+- [x] **Section 1** — Upload: CSV to S3, jobs and artifacts tables
 - [ ] **Section 2** — LLM client: structured output, rate limiting, token accounting
 - [ ] **Section 3** — Schema detection and the human checkpoint
 - [ ] **Section 4** — Background worker: Celery, LangGraph, progress tracking
@@ -121,6 +121,13 @@ make clean       # stop and DELETE all data volumes
 
 Configuration comes entirely from environment variables. `docker compose` supplies
 them; copy `.env.example` to `.env` only if you run something directly on your host.
+
+There is an example dataset at `data/examples/customer_churn.csv` — 500 rows with mixed
+types, missing values, PII-shaped columns and a binary target.
+
+> **Do not keep this project in an iCloud-synced folder** (Desktop or Documents, if you
+> have iCloud Drive enabled). Containers cannot read files through the macOS file
+> provider and fail with `OSError: [Errno 35] Resource deadlock avoided`.
 
 ---
 

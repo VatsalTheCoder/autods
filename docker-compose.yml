@@ -92,6 +92,9 @@ services:
       # Mounted rather than baked into the image, so `make test` sees the
       # tests you just edited and the production image stays free of them.
       - ./tests:/code/tests
+      # Mounted so ruff and pytest configuration changes take effect without
+      # an image rebuild.
+      - ./pyproject.toml:/code/pyproject.toml
     depends_on:
       postgres:
         condition: service_healthy
