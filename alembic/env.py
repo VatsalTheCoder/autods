@@ -11,12 +11,13 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 
+# Importing the models registers them on Base.metadata, which is what
+# autogenerate compares against the live database. A model not imported here is
+# silently invisible to migrations.
+import app.models  # noqa: F401
 from alembic import context
 from app.core.config import get_settings
 from app.core.db import Base
-
-# Section 1 imports the ORM models here so autogenerate can see them:
-#   from app.models import artifact, job, user  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", str(get_settings().database_url))

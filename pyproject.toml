@@ -19,6 +19,7 @@ dependencies = [
     "redis>=5.2",
     "boto3>=1.35",
     "python-multipart>=0.0.12",
+    "pandas>=2.2",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +54,19 @@ select = [
     "B",    # bugbear: likely bugs
     "UP",   # pyupgrade: modern syntax
     "C4",   # comprehension simplifications
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 flags function calls in argument defaults, which is normally a real bug.
+# FastAPI's dependency injection is built on exactly that pattern, so these
+# specific calls are exempted rather than the rule being disabled everywhere.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Query",
+    "fastapi.Body",
+    "fastapi.Path",
 ]
 
 [tool.pytest.ini_options]

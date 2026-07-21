@@ -40,7 +40,9 @@ coverage.xml
 # ---- Data & ML artifacts ------------------------------------------------
 # Everything the pipeline generates belongs in S3, not in git (spec §14).
 # Example datasets are the exception - force-add small ones under data/examples/.
-data/
+# Note: `data/*` not `data/`. Git does not descend into an excluded
+# directory, so `data/` would make the exception below unreachable.
+data/*
 !data/examples/
 *.csv
 *.parquet
