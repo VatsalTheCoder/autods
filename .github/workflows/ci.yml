@@ -25,7 +25,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          # Re-enable `cache: pip` in Section 0, once a dependency file exists.
+          # It errors out if there is no requirements.txt or pyproject.toml.
 
       # Section 0 adds real dependencies. Until then there is nothing to install,
       # so this step is written to tolerate their absence rather than fail.
