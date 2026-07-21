@@ -1,0 +1,75 @@
+# ---- Secrets: never commit these ----------------------------------------
+# A key committed once stays in git history even after you delete it.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# ---- Python -------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+ENV/
+
+# ---- Testing & type checking --------------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# ---- Notebooks ----------------------------------------------------------
+.ipynb_checkpoints/
+
+# ---- Data & ML artifacts ------------------------------------------------
+# Everything the pipeline generates belongs in S3, not in git (spec §14).
+# Example datasets are the exception - force-add small ones under data/examples/.
+data/
+!data/examples/
+*.csv
+*.parquet
+*.pkl
+*.joblib
+*.h5
+!data/examples/*.csv
+artifacts/
+outputs/
+mlruns/
+chroma/
+chroma_db/
+*.db
+*.sqlite3
+
+# ---- Local service state ------------------------------------------------
+postgres_data/
+redis_data/
+minio_data/
+*.log
+logs/
+
+# ---- Editors & OS -------------------------------------------------------
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# ---- Claude Code --------------------------------------------------------
+# Personal settings; shared project settings would go in .claude/settings.json
+.claude/settings.local.json
