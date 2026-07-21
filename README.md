@@ -71,7 +71,7 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 
 ## Build progress
 
-- [ ] **Section 0** — Skeleton: Docker Compose, config, S3 abstraction, health check
+- [x] **Section 0** — Skeleton: Docker Compose, config, S3 abstraction, health check
 - [ ] **Section 1** — Upload: CSV to S3, jobs and artifacts tables
 - [ ] **Section 2** — LLM client: structured output, rate limiting, token accounting
 - [ ] **Section 3** — Schema detection and the human checkpoint
@@ -89,12 +89,38 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 
 ## Running it
 
-Not yet runnable — Section 0 sets up the container stack. Once it lands:
+Requires Docker. On macOS, either Docker Desktop or Colima works:
 
 ```bash
-cp .env.example .env    # fill in your API key
-docker compose up
+brew install colima docker docker-compose
+colima start --cpu 4 --memory 4 --disk 40
 ```
+
+Then bring up the stack:
+
+```bash
+make up          # starts postgres, redis, minio, api, worker, ui
+make health      # confirm everything is reachable
+```
+
+| Service | URL |
+|---|---|
+| Streamlit UI | http://localhost:8501 |
+| API docs | http://localhost:8000/docs |
+| MinIO console | http://localhost:9001 (`minioadmin` / `minioadmin`) |
+
+Common commands — run `make` on its own for the full list:
+
+```bash
+make test        # run the test suite
+make lint        # the same checks CI runs
+make logs        # follow logs from all services
+make down        # stop (data is preserved)
+make clean       # stop and DELETE all data volumes
+```
+
+Configuration comes entirely from environment variables. `docker compose` supplies
+them; copy `.env.example` to `.env` only if you run something directly on your host.
 
 ---
 
