@@ -90,6 +90,20 @@ machine-learning code at the same time.
 **Done when:** `docker compose up` gives five healthy containers, the Streamlit page shows a value
 it fetched from FastAPI, and `alembic upgrade head` runs clean.
 
+**In plain English, the work is:**
+- Set up folders so the code has an obvious place to live
+- Write a recipe that builds an identical mini-computer for the app to run inside, so it behaves
+  the same on your Mac as on a server
+- Write one file listing every mini-computer the project needs and how they find each other
+- Put every setting — passwords, addresses, bucket names — into environment variables, so nothing
+  is written into the code itself
+- Write one module that saves and loads files from cloud storage, and make a rule that nothing
+  else in the project is ever allowed to touch files directly
+- Add a web address that answers "am I working?", and a webpage that asks it and shows the answer
+
+> ✅ **Complete** — six containers healthy (a MinIO storage container was added to the five
+> planned), `/health` returning 200, and the API → queue → worker round-trip already working.
+
 ---
 
 ## Section 1 — Upload · ~1 week
@@ -108,6 +122,17 @@ browser — do something real together.
 
 **Done when:** you upload a CSV in the browser and can see both the object in S3 and the row in
 Postgres.
+
+**In plain English, the work is:**
+- Create three database tables: one for users, one for uploaded jobs, one listing the files each
+  job produces
+- Add a web address the browser can send a file to
+- When a file arrives: check it really is a valid spreadsheet, put it in storage, write down in
+  the database that it happened, and hand back a ticket number
+- Build the upload page — a file picker, and a preview of the first few rows so the user can see
+  their data arrived intact
+- Add a way to give the browser a temporary, expiring link so it can read files straight from
+  storage instead of routing everything through the backend
 
 ---
 
@@ -135,6 +160,16 @@ every run, which makes them useless as tests.
 **Done when:** a test round-trips a Pydantic schema through the real client; a second test suite
 exercises the same code paths through `FakeLLM` with zero network calls; and a deliberately
 malformed response visibly triggers the retry path.
+
+**In plain English, the work is:**
+- Write one wrapper that knows how to talk to the AI model, so no other part of the project has to
+- Make it insist the AI replies in a fixed shape, and automatically ask again when the reply comes
+  back malformed
+- Add a queue that deliberately slows requests down, so you never get temporarily blocked for
+  sending too many too fast
+- Record how many words each request used and what it cost, in a database table
+- Build a fake version that returns pre-written answers, so tests can run instantly, for free, and
+  give the same result every time
 
 > ⚠️ **Check this first.** The model names, benchmark scores, and free-tier quotas in spec §6.3
 > are unverified — the spec itself flags them. Confirm the real requests-per-minute and
@@ -171,6 +206,17 @@ two separate jobs. (This is spec §7.1–7.2; it's a good call and worth keeping
 **Done when:** upload → schema appears in a few seconds → you edit and confirm it → the confirmed
 version is saved against the job.
 
+**In plain English, the work is:**
+- Write code that inspects every column and reports what kind of data it holds, how many blanks it
+  has, and how many different values appear
+- Add pattern matching that spots emails, phone numbers and ID numbers automatically
+- Ask the AI what each column actually *means*, which one looks worth predicting, and whether any
+  column holds someone's name
+- Run all of this the instant the file is uploaded, while the user is still sat watching, rather
+  than later in a background job
+- Build a screen that shows every guess with everything editable, so the user can correct it
+- Save whatever the user confirmed, and use that from then on
+
 ---
 
 ## Section 4 — The background worker · ~1.5 weeks
@@ -195,6 +241,17 @@ five sleeping nodes, your infrastructure is correct.
 **Done when:** you confirm a job, watch the Progress page tick through the nodes, and a
 deliberately thrown exception shows up as `failed` with a clear reason instead of hanging.
 
+**In plain English, the work is:**
+- Set up a second program that sits waiting, picks jobs off a queue, and does the slow work while
+  the website stays responsive
+- Have it fetch the spreadsheet back out of storage, because it cannot see the backend's disk —
+  they are separate machines as far as the code is concerned
+- Define the shared clipboard that gets handed from one step to the next
+- Wire up a chain of pretend steps that just wait a few seconds and say "done"
+- Record which step is currently running and save it where the website can read it
+- Add an address the browser can keep asking "how's it going?", and a page that displays it
+- Break a step on purpose and check the job reports a clear failure instead of hanging forever
+
 ---
 
 ## Section 5 — The vertical slice · ~2 weeks
@@ -217,6 +274,21 @@ produces a cross-validated score and a readable report, with every artifact in S
 status in Postgres. The whole product is demoable. It's a weak version — one model, hardcoded
 preprocessing, plain-text report — but from here everything is just upgrading parts of a machine
 that already runs.
+
+**In plain English, the work is:**
+- Write the cleaning code: fill in blanks, drop duplicate rows, fix columns stored as the wrong
+  type, delete columns that never change, remove personal data
+- Write out a *recipe* describing how each column should be prepared — but deliberately do not run
+  it yet
+- Split the data into 5 chunks. For each chunk in turn: apply the recipe using only the other 4,
+  train a model on those 4, then test on the held-out chunk
+- Score the results with the right measures for the kind of problem it is
+- Write the numbers out as a short report and show it on a results page
+- Ask the AI for a small plan, and wire up one or two on/off switches it controls
+
+> ⚠️ The split-into-5 step is where the whole project's credibility sits. The recipe must be
+> applied *separately inside each chunk*, never once over everything up front. See the final
+> section of this document for why.
 
 ---
 
@@ -248,6 +320,17 @@ English.
 **Done when:** the Results page shows the charts, the cluster scatter, and a readable description
 of each cluster.
 
+**In plain English, the work is:**
+- Work out the basic numbers for every column: average, spread, how many blanks, and which columns
+  move together
+- Draw the standard charts and save them as images into storage
+- Automatically sort rows into groups of similar records
+- Try several different group counts and keep whichever splits the data most cleanly
+- Squash the data down to two dimensions so those groups can actually be drawn on a flat chart
+- Ask the AI to describe each group in a sentence or two, in language a non-technical person
+  understands
+- Make sure the group labels are used for *insight only* and never fed into the model as an input
+
 ---
 
 ## Section 7 — Feature engineering · ~2.5 weeks · spec M3
@@ -275,6 +358,17 @@ column list. An LLM writing pandas code that transforms your dataset is somethin
 **Done when:** two datasets with different shapes visibly take different routes through the graph,
 and the leaderboard ranks the full model roster.
 
+**In plain English, the work is:**
+- Ask the AI, column by column, how that column should be prepared — and have it answer as a small
+  table of decisions, not as code
+- Check its answer only mentions columns that genuinely exist, and reject it if it invents one
+- Turn that table of decisions into a real preparation recipe — still without running it
+- Add the step that balances rare cases, and put it in exactly the right place: applied to the
+  training portion only, never to the portion being tested on
+- Let the plan switch optional steps on and off, and make the website visibly show when a step was
+  skipped
+- Train four different types of model and rank them on a leaderboard
+
 ---
 
 ## Section 8 — Final training, SHAP & prediction · ~2 weeks · spec M4
@@ -297,6 +391,16 @@ claim.
 **Done when:** SHAP plots appear on the Results page with human-readable feature names, and a live
 prediction works against the saved model.
 
+**In plain English, the work is:**
+- Take whichever model won, retrain it on all the data this time, and save it into storage
+- Run the explanation tool over it to work out how much each column pushed each prediction up or
+  down
+- Translate the machine's internal column names back into the ones the user recognises — the
+  fiddly bit, budget real time for it
+- Draw two kinds of chart: which columns matter most overall, and why one specific row got the
+  answer it got
+- Add a web address that takes new data and returns a live prediction from the saved model
+
 ---
 
 ## Section 9 — Critic & report · ~2 weeks · spec M5
@@ -316,6 +420,16 @@ feature lists, truncate the tables.
 
 **Done when:** a multi-section PDF downloads from the browser — and you've tested it on a dataset
 with 100+ columns, because that's where the token cap breaks, not on your tidy 8-column demo file.
+
+**In plain English, the work is:**
+- Write helpers that squeeze all the results down into a short summary — round the numbers, cut
+  long lists short, trim big tables
+- Ask the AI to review the whole pipeline's work and honestly point out its weaknesses
+- Ask the AI to write the final report, section by section
+- Convert that report into a proper PDF
+- Add a web address to download it
+- Test it on a spreadsheet with a hundred-plus columns, because that is where it will break —
+  a tidy little demo file will pass and tell you nothing
 
 ---
 
@@ -341,6 +455,16 @@ The agent decides which tool to use. Getting that routing right is the interesti
 **Done when:** "why was X important?" routes to RAG, "what's the average age?" routes to pandas,
 and both answer correctly on a dataset you know the answers for.
 
+**In plain English, the work is:**
+- Chop all the reports into paragraphs, and convert each into a list of numbers that captures its
+  meaning — so you can search by *meaning* rather than by exact wording
+- Store those so they can be searched quickly
+- When a question comes in, find the handful of most relevant paragraphs and hand them to the AI
+  along with the question, so its answer is grounded in real output rather than invented
+- Build a second tool that runs actual calculations over the spreadsheet
+- Write the decision that picks which of the two tools a question needs
+- Save the conversation history, and build the chat page
+
 ---
 
 # Phase C — Closing
@@ -365,6 +489,17 @@ bigger machine." That's what "cloud-ready by construction" cashes out to.
 
 **Done when:** there's a URL an examiner can open, and a runbook for bringing it up from cold.
 
+**In plain English, the work is:**
+- Rent a computer from Amazon and get the containers running on it, the same way they run on your
+  Mac
+- Move the passwords and API keys out of files and into Amazon's secure store
+- Point the storage module at real Amazon storage instead of the local stand-in — one setting
+- Run the database setup against the real database
+- Set an alarm that emails you if the bill goes above a few pounds, and write down how to switch
+  the machine off when you are not demoing
+- Write instructions for starting the whole thing from nothing, so you are not reconstructing it
+  from memory the night before a demo
+
 ---
 
 ## Section 12 — Testing & docs · ongoing, ~1.5 weeks concentrated
@@ -381,6 +516,17 @@ all the tests at the end."
 - Architecture diagram, agent-interaction diagram, database ER diagram, API docs, setup guide,
   AWS deployment guide
 - README with example datasets
+
+**In plain English, the work is:**
+- Write tests as you go, not at the end — each section adds its own
+- Test the boring, predictable parts hardest: cleaning, recipe building, the scoring maths. Those
+  are the parts that can be checked exactly
+- Write the one test that matters most: proving the preparation recipe really is unused when it
+  leaves the feature-engineering step
+- Use the fake AI from Section 2 to test the AI-driven parts, so tests stay fast and repeatable
+- Write one test that runs the entire thing start to finish
+- Draw the diagrams, write the setup guide, and include a couple of example spreadsheets so
+  someone else can actually run it
 
 ---
 
