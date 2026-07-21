@@ -1,0 +1,82 @@
+name: CI
+
+# Runs on every push and every pull request to main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# If you push twice quickly, cancel the older run instead of paying for both.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, type-check and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Section 0 adds real dependencies. Until then there is nothing to install,
+      # so this step is written to tolerate their absence rather than fail.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            pip install -e ".[dev]"
+          else
+            echo "No dependency file yet - skipping."
+          fi
+          pip install ruff
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Check formatting (ruff)
+        run: ruff format --check .
+
+      # Passes trivially today; becomes meaningful from Section 5 onward.
+      - name: Run tests
+        run: |
+          if [ -d tests ]; then
+            pip install pytest pytest-cov
+            pytest tests/ --cov=app --cov-report=term-missing
+          else
+            echo "No tests directory yet - skipping."
+          fi
+
+  docs:
+    name: Check documentation links
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      # Catches links to files that were renamed or never existed.
+      - name: Verify relative links in Markdown resolve
+        run: |
+          fail=0
+          for md in $(find . -name '*.md' -not -path './.git/*'); do
+            dir=$(dirname "$md")
+            targets=$(grep -oE '\]\(([^)#:]+\.md)' "$md" | sed 's/^](//' || true)
+            for t in $targets; do
+              if [ ! -f "$dir/$t" ]; then
+                echo "::error file=$md::Broken link to '$t'"
+                fail=1
+              fi
+            done
+          done
+          exit $fail
