@@ -29,6 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.db import Base
 
 if TYPE_CHECKING:
+    from app.models.agent_run import AgentRun
     from app.models.artifact import Artifact
     from app.models.token_usage import TokenUsage
     from app.models.user import User
@@ -96,6 +97,12 @@ class Job(Base):
     )
     token_usage: Mapped[list[TokenUsage]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
+    )
+    agent_runs: Mapped[list[AgentRun]] = relationship(
+        back_populates="job",
+        cascade="all, delete-orphan",
+        # Always hand them back in pipeline order, so the UI never has to sort.
+        order_by="AgentRun.sequence",
     )
 
     def __repr__(self) -> str:

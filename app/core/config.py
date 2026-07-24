@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     llm_backoff_retries: int = 5
     llm_request_timeout: int = 60
 
+    # ---- Pipeline (Section 4) -------------------------------------------
+    # Section 4's nodes are placeholders that only sleep, so the distributed
+    # execution can be proven before real work goes in. This controls how long
+    # each pretends to work -- long enough that the Progress bar visibly ticks,
+    # short enough not to bore a demo. Tests set it to 0 for speed.
+    pipeline_placeholder_sleep_seconds: float = 1.0
+
     @property
     def is_local(self) -> bool:
         return self.environment == "local"

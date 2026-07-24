@@ -55,6 +55,30 @@ class JobSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AgentRunSummary(BaseModel):
+    """One pipeline node's status, for the Progress page (Section 4)."""
+
+    name: str
+    sequence: int
+    status: str
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class JobDetail(JobSummary):
+    """A single job plus its per-node pipeline status.
+
+    Returned by ``GET /jobs/{id}`` so one poll gives the Progress page both the
+    overall status and where the pipeline currently is. The list view stays on
+    the lighter ``JobSummary``.
+    """
+
+    agent_runs: list[AgentRunSummary] = Field(default_factory=list)
+
+
 class ConfirmJobRequest(ConfirmedSchema):
     """The confirmed schema, plus which job it belongs to.
 

@@ -173,8 +173,9 @@ if "confirmed" in st.session_state:
     job = st.session_state["confirmed"]
     st.success(
         f"✅ Job **{job['id']}** confirmed — target **{job['target_column']}**, "
-        f"task **{job['task_type']}**. The pipeline launches from here in Section 4."
+        f"task **{job['task_type']}**. The pipeline is now running."
     )
+    st.page_link("pages/2_Progress.py", label="Watch it on the Progress page →", icon="📊")
 
 
 # ---- Previous jobs ----------------------------------------------------------

@@ -23,6 +23,9 @@ dependencies = [
     # Section 2: the Google AI Studio client (unified Google GenAI SDK). Serves
     # both Gemma tiers; embeddings stay separate and land in Section 10.
     "google-genai>=1.0",
+    # Section 4: the workflow engine. Introduced now with placeholder nodes so
+    # the orchestration is proven before real agents fill it (Section 5+).
+    "langgraph>=0.2",
 ]
 
 [project.optional-dependencies]

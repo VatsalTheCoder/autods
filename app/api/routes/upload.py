@@ -23,6 +23,7 @@ from app.api.schemas import (
     ArtifactSummary,
     ConfirmJobRequest,
     DatasetPreview,
+    JobDetail,
     JobSummary,
     UploadResponse,
 )
@@ -49,6 +50,7 @@ from app.services.csv_validation import (
     validate_size,
 )
 from app.services.profiling import read_csv_frame
+from app.worker.tasks import enqueue_pipeline
 
 SCHEMA_ARTIFACT = "schema_report.json"
 CONFIRMED_SCHEMA_ARTIFACT = "confirmed_schema.json"
@@ -176,7 +178,11 @@ def list_jobs(limit: int = 50, db: Session = Depends(get_db)) -> list[Job]:
     )
 
 
-@router.get("/jobs/{job_id}", response_model=JobSummary, summary="Fetch one job")
+@router.get(
+    "/jobs/{job_id}",
+    response_model=JobDetail,
+    summary="Fetch one job with its per-node pipeline status",
+)
 def get_job(job_id: int, db: Session = Depends(get_db)) -> Job:
     job = db.get(Job, job_id)
     if job is None:
@@ -235,7 +241,10 @@ def confirm_job(request: ConfirmJobRequest, db: Session = Depends(get_db)) -> Jo
     confirmed = request.as_confirmed_schema()
     job.target_column = confirmed.target_column
     job.task_type = confirmed.task_type
-    job.status = JobStatus.CONFIRMED
+    # Straight to QUEUED: confirming *is* launching the pipeline (spec 12.2).
+    # Committing QUEUED before dispatching avoids a race where the worker moves
+    # the job to RUNNING and this request then clobbers it back to QUEUED.
+    job.status = JobStatus.QUEUED
 
     try:
         register_json_artifact(db, job.id, CONFIRMED_SCHEMA_ARTIFACT, confirmed)
@@ -248,8 +257,9 @@ def confirm_job(request: ConfirmJobRequest, db: Session = Depends(get_db)) -> Jo
         ) from exc
 
     db.refresh(job)
+    enqueue_pipeline(job.id)
     logger.info(
-        "Job %s confirmed: target=%s task=%s excluded=%s",
+        "Job %s confirmed and queued: target=%s task=%s excluded=%s",
         job.id,
         confirmed.target_column,
         confirmed.task_type,
