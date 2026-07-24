@@ -73,6 +73,13 @@ class Job(Base):
     n_rows: Mapped[int | None] = mapped_column(Integer, nullable=True)
     n_columns: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Set when the user confirms the schema (Section 3). The full confirmed
+    # schema is stored as a JSON artifact; these two fields are mirrored onto
+    # the row because every later stage needs the target and task type, and a
+    # column read beats fetching and parsing an S3 object each time.
+    target_column: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    task_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     # Set when status is FAILED, so the UI can show why rather than just that.
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

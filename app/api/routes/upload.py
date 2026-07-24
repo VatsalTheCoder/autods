@@ -15,15 +15,22 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agents.schema_detection import AGENT_NAME as SCHEMA_AGENT
+from app.agents.schema_detection import detect_schema
+from app.agents.schema_models import SchemaReport
 from app.api.schemas import (
     ArtifactLink,
     ArtifactSummary,
+    ConfirmJobRequest,
     DatasetPreview,
     JobSummary,
     UploadResponse,
 )
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.core.llm.base import LLMClient
+from app.core.llm.factory import get_optional_llm
+from app.core.llm.usage import make_usage_recorder
 from app.core.storage import (
     StorageError,
     artifact_key,
@@ -34,12 +41,17 @@ from app.core.storage import (
 from app.models.artifact import Artifact, ArtifactKind
 from app.models.job import Job, JobStatus
 from app.models.user import DEV_USER_ID
+from app.services.artifacts import load_json_artifact, register_json_artifact
 from app.services.csv_validation import (
     CSVValidationError,
     inspect_csv,
     validate_filename,
     validate_size,
 )
+from app.services.profiling import read_csv_frame
+
+SCHEMA_ARTIFACT = "schema_report.json"
+CONFIRMED_SCHEMA_ARTIFACT = "confirmed_schema.json"
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +67,7 @@ router = APIRouter(tags=["jobs"])
 def upload_csv(
     file: UploadFile = File(..., description="A UTF-8 encoded CSV file."),
     db: Session = Depends(get_db),
+    llm: LLMClient | None = Depends(get_optional_llm),
 ) -> UploadResponse:
     settings = get_settings()
 
@@ -120,12 +133,33 @@ def upload_csv(
         summary.n_columns,
     )
 
+    # ---- Synchronous schema detection (the human checkpoint) ----------------
+    # Runs here, in the request, while the user waits -- so confirmation happens
+    # between two jobs and no running graph is ever paused (spec 7.2). Profiling
+    # always succeeds; the LLM pass enriches it when available and is skipped
+    # silently otherwise, so this can never fail an upload that already stored a
+    # valid file.
+    report = detect_schema(
+        read_csv_frame(data),
+        client=llm,
+        on_usage=make_usage_recorder(db, job.id, SCHEMA_AGENT),
+    )
+    try:
+        register_json_artifact(db, job.id, SCHEMA_ARTIFACT, report)
+        db.commit()
+    except StorageError:
+        # The report survives in the response below, so the user can still
+        # confirm; only the persisted copy is lost. Do not fail the upload.
+        db.rollback()
+        logger.exception("Could not persist schema report for job %s", job.id)
+
     return UploadResponse(
         job_id=job.id,
         filename=job.original_filename,
         status=job.status,
         size_bytes=job.size_bytes,
         created_at=job.created_at,
+        schema_report=report,
         preview=DatasetPreview(
             n_rows=summary.n_rows,
             n_columns=summary.n_columns,
@@ -147,6 +181,80 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> Job:
     job = db.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No job {job_id}.")
+    return job
+
+
+@router.get(
+    "/jobs/{job_id}/schema",
+    response_model=SchemaReport,
+    summary="The detected schema report for a job",
+)
+def get_schema(job_id: int, db: Session = Depends(get_db)) -> SchemaReport:
+    """Return the schema detected at upload, for a returning user to confirm."""
+    if db.get(Job, job_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No job {job_id}.")
+    payload = load_json_artifact(db, job_id, SCHEMA_ARTIFACT)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} has no schema report.",
+        )
+    return SchemaReport.model_validate(payload)
+
+
+@router.post(
+    "/jobs",
+    response_model=JobSummary,
+    status_code=status.HTTP_200_OK,
+    summary="Confirm a job's schema",
+)
+def confirm_job(request: ConfirmJobRequest, db: Session = Depends(get_db)) -> Job:
+    """Store the user's confirmed schema and mark the job ready.
+
+    This is the far side of the human checkpoint. In Section 3 it records the
+    confirmed target, task type and exclusions; Section 4 extends it to launch
+    the background pipeline from here. The confirmed target is validated against
+    the columns actually in the dataset, so a stale or hand-crafted request
+    cannot point the pipeline at a column that does not exist.
+    """
+    job = db.get(Job, request.job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"No job {request.job_id}."
+        )
+
+    stored = load_json_artifact(db, job.id, SCHEMA_ARTIFACT)
+    if stored is not None:
+        valid_columns = set(SchemaReport.model_validate(stored).column_names())
+        if request.target_column not in valid_columns:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Target {request.target_column!r} is not a column in this dataset.",
+            )
+
+    confirmed = request.as_confirmed_schema()
+    job.target_column = confirmed.target_column
+    job.task_type = confirmed.task_type
+    job.status = JobStatus.CONFIRMED
+
+    try:
+        register_json_artifact(db, job.id, CONFIRMED_SCHEMA_ARTIFACT, confirmed)
+        db.commit()
+    except StorageError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not save the confirmed schema. Please try again.",
+        ) from exc
+
+    db.refresh(job)
+    logger.info(
+        "Job %s confirmed: target=%s task=%s excluded=%s",
+        job.id,
+        confirmed.target_column,
+        confirmed.task_type,
+        confirmed.excluded(),
+    )
     return job
 
 

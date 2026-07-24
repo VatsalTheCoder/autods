@@ -75,7 +75,10 @@ class TestSuccessfulUpload:
                 db.execute(select(Artifact).where(Artifact.job_id == job_id)).scalars().all()
             )
 
-            assert [a.name for a in artifacts] == ["dataset.csv"]
+            names = {a.name for a in artifacts}
+            # The raw dataset, plus the schema report detected at upload (Section 3).
+            assert "dataset.csv" in names
+            assert "schema_report.json" in names
 
     def test_each_upload_gets_its_own_storage_key(self, client):
         first = _post(client, VALID_CSV).json()["job_id"]
@@ -140,8 +143,8 @@ class TestJobEndpoints:
 
         artifacts = client.get(f"/jobs/{job_id}/artifacts").json()
 
-        assert artifacts[0]["name"] == "dataset.csv"
-        assert artifacts[0]["kind"] == "raw_dataset"
+        raw = next(a for a in artifacts if a["name"] == "dataset.csv")
+        assert raw["kind"] == "raw_dataset"
 
 
 class TestArtifactLinks:

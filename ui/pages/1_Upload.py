@@ -4,6 +4,11 @@ Pick a CSV, send it to the API, and show what came back. The preview matters
 more than it looks: it is the user's only chance to notice their file parsed
 wrongly (a semicolon delimiter, a stray header row) before anything downstream
 is built on it.
+
+Then the human checkpoint (Section 3): the detected schema is shown with every
+guess editable -- target, task type, and which columns are personal data to
+exclude -- and confirming it saves the approved version against the job. The
+upload response carries the schema, so the form renders with no second request.
 """
 
 from __future__ import annotations
@@ -20,7 +25,34 @@ UPLOAD_TIMEOUT_SECONDS = 120
 st.set_page_config(page_title="Upload · AutoDS", page_icon="📤", layout="wide")
 
 st.title("📤 Upload a dataset")
-st.caption("Upload a CSV to start a new analysis job.")
+st.caption("Upload a CSV to start a new analysis job, then confirm its schema.")
+
+
+def _do_upload(name: str, data: bytes) -> None:
+    """Upload the file and stash the response for the confirmation step."""
+    with st.spinner("Uploading and detecting schema…"):
+        try:
+            response = requests.post(
+                f"{API_BASE_URL}/upload",
+                files={"file": (name, data, "text/csv")},
+                timeout=UPLOAD_TIMEOUT_SECONDS,
+            )
+        except requests.exceptions.RequestException as exc:
+            st.error("Could not reach the API.")
+            st.code(str(exc), language=None)
+            return
+
+    if response.status_code == 201:
+        # Persist across reruns: editing a widget below reruns the script, and
+        # the payload must survive so the form does not vanish mid-confirmation.
+        st.session_state["upload"] = response.json()
+        st.session_state.pop("confirmed", None)
+    elif response.status_code == 422:
+        st.error(response.json().get("detail", "The file could not be used."))
+    else:
+        st.error(f"Upload failed (HTTP {response.status_code}).")
+        st.code(response.text, language=None)
+
 
 uploaded = st.file_uploader(
     "Choose a CSV file",
@@ -30,48 +62,122 @@ uploaded = st.file_uploader(
 
 if uploaded is not None:
     st.write(f"**{uploaded.name}** — {uploaded.size / 1024:.1f} KB")
-
     if st.button("Upload", type="primary"):
-        with st.spinner("Uploading and inspecting…"):
-            try:
-                response = requests.post(
-                    f"{API_BASE_URL}/upload",
-                    files={"file": (uploaded.name, uploaded.getvalue(), "text/csv")},
-                    timeout=UPLOAD_TIMEOUT_SECONDS,
-                )
-            except requests.exceptions.RequestException as exc:
-                st.error("Could not reach the API.")
-                st.code(str(exc), language=None)
-                st.stop()
+        _do_upload(uploaded.name, uploaded.getvalue())
 
-        if response.status_code == 201:
-            payload = response.json()
-            preview = payload["preview"]
 
-            st.success(f"Created job **{payload['job_id']}**")
+# ---- Confirmation step ------------------------------------------------------
 
-            a, b, c = st.columns(3)
-            a.metric("Rows", f"{preview['n_rows']:,}")
-            b.metric("Columns", preview["n_columns"])
-            c.metric("Size", f"{payload['size_bytes'] / 1024:.1f} KB")
 
-            st.subheader("Preview")
-            st.dataframe(pd.DataFrame(preview["rows"]), use_container_width=True)
+def _render_confirmation(payload: dict) -> None:
+    report = payload["schema_report"]
+    job_id = payload["job_id"]
+    columns = report["columns"]
+    names = [c["name"] for c in columns]
 
-            st.subheader("Columns")
-            st.write(", ".join(f"`{column}`" for column in preview["columns"]))
+    st.success(f"Created job **{job_id}**")
 
-            st.info(
-                "Next: schema detection will suggest which column to predict "
-                "and flag any personal data. That arrives in Section 3."
-            )
+    a, b, c = st.columns(3)
+    a.metric("Rows", f"{report['n_rows']:,}")
+    b.metric("Columns", report["n_columns"])
+    c.metric("Size", f"{payload['size_bytes'] / 1024:.1f} KB")
 
-        elif response.status_code == 422:
-            # The API's validation messages are written to be shown as-is.
-            st.error(response.json().get("detail", "The file could not be used."))
+    st.subheader("Preview")
+    st.dataframe(pd.DataFrame(payload["preview"]["rows"]), use_container_width=True)
+
+    if not report["llm_enriched"]:
+        st.caption(
+            "ℹ️ Column meanings were not generated (no LLM configured); the "
+            "suggestions below are from automatic profiling only."
+        )
+
+    st.subheader("Confirm the schema")
+    st.caption("Everything here is a suggestion. Correct anything before continuing.")
+
+    suggested_target = report.get("suggested_target") or names[-1]
+    target = st.selectbox(
+        "Target column — the thing to predict",
+        options=names,
+        index=names.index(suggested_target) if suggested_target in names else len(names) - 1,
+    )
+
+    task_default = report.get("task_type") or "classification"
+    task_type = st.radio(
+        "Task type",
+        options=["classification", "regression"],
+        index=0 if task_default == "classification" else 1,
+        horizontal=True,
+    )
+
+    if report.get("class_balance") and report["class_balance"]["imbalanced"]:
+        ratio = report["class_balance"]["imbalance_ratio"]
+        st.warning(
+            f"The target looks imbalanced ({ratio:.1f}:1). SMOTE (Section 7) will "
+            "address this inside cross-validation."
+        )
+
+    st.markdown("**Columns** — tick personal data, and anything to exclude from modelling.")
+    editor_rows = [
+        {
+            "column": col["name"],
+            "type": col["semantic_type"],
+            "meaning": col.get("meaning") or "",
+            "PII": col["is_pii"],
+            "exclude": col["exclude"],
+        }
+        for col in columns
+    ]
+    edited = st.data_editor(
+        pd.DataFrame(editor_rows),
+        use_container_width=True,
+        hide_index=True,
+        disabled=["column", "type", "meaning"],
+        column_config={
+            "PII": st.column_config.CheckboxColumn(help="Is this personal data?"),
+            "exclude": st.column_config.CheckboxColumn(help="Leave this column out of the model?"),
+        },
+        key=f"editor_{job_id}",
+    )
+
+    if st.button("Confirm schema", type="primary"):
+        body = {
+            "job_id": job_id,
+            "target_column": target,
+            "task_type": task_type,
+            "columns": [
+                {"name": row["column"], "is_pii": bool(row["PII"]), "exclude": bool(row["exclude"])}
+                for row in edited.to_dict(orient="records")
+            ],
+        }
+        try:
+            resp = requests.post(f"{API_BASE_URL}/jobs", json=body, timeout=30)
+        except requests.exceptions.RequestException as exc:
+            st.error("Could not reach the API.")
+            st.code(str(exc), language=None)
+            return
+
+        if resp.status_code == 200:
+            st.session_state["confirmed"] = resp.json()
+        elif resp.status_code == 422:
+            st.error(resp.json().get("detail", "The confirmation was rejected."))
         else:
-            st.error(f"Upload failed (HTTP {response.status_code}).")
-            st.code(response.text, language=None)
+            st.error(f"Confirmation failed (HTTP {resp.status_code}).")
+            st.code(resp.text, language=None)
+
+
+if "upload" in st.session_state:
+    st.divider()
+    _render_confirmation(st.session_state["upload"])
+
+if "confirmed" in st.session_state:
+    job = st.session_state["confirmed"]
+    st.success(
+        f"✅ Job **{job['id']}** confirmed — target **{job['target_column']}**, "
+        f"task **{job['task_type']}**. The pipeline launches from here in Section 4."
+    )
+
+
+# ---- Previous jobs ----------------------------------------------------------
 
 st.divider()
 st.subheader("Previous jobs")
@@ -92,6 +198,8 @@ else:
                     "ID": job["id"],
                     "File": job["original_filename"],
                     "Status": job["status"],
+                    "Target": job.get("target_column") or "—",
+                    "Task": job.get("task_type") or "—",
                     "Rows": job["n_rows"],
                     "Columns": job["n_columns"],
                     "Uploaded": job["created_at"][:19].replace("T", " "),
