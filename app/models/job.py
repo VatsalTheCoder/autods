@@ -30,6 +30,7 @@ from app.core.db import Base
 
 if TYPE_CHECKING:
     from app.models.artifact import Artifact
+    from app.models.token_usage import TokenUsage
     from app.models.user import User
 
 
@@ -84,6 +85,9 @@ class Job(Base):
 
     user: Mapped[User] = relationship(back_populates="jobs")
     artifacts: Mapped[list[Artifact]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+    token_usage: Mapped[list[TokenUsage]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
 

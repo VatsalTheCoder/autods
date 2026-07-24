@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Multi-agent autonomous data scientist"
 requires-python = ">=3.12"
 
-# Deliberately minimal. ML and LLM dependencies arrive in the sections that
-# need them (Section 2: LLM client, Section 5: scikit-learn, Section 8: SHAP).
-# Keeping this small now means fast Docker builds while you iterate on plumbing.
+# Deliberately minimal. Heavy ML dependencies still arrive in the sections that
+# need them (Section 5: scikit-learn, Section 8: SHAP). Keeping this small means
+# fast Docker builds while you iterate on plumbing.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -20,6 +20,9 @@ dependencies = [
     "boto3>=1.35",
     "python-multipart>=0.0.12",
     "pandas>=2.2",
+    # Section 2: the Google AI Studio client (unified Google GenAI SDK). Serves
+    # both Gemma tiers; embeddings stay separate and land in Section 10.
+    "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]
