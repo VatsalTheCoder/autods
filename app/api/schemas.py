@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agents.schema_models import ConfirmedSchema, SchemaReport
 from app.models.job import JobStatus
 
 
@@ -30,6 +31,9 @@ class UploadResponse(BaseModel):
     status: JobStatus
     size_bytes: int
     preview: DatasetPreview
+    # Detected synchronously during upload (Section 3), so the confirmation
+    # screen can render immediately without a second round-trip.
+    schema_report: SchemaReport
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,11 +46,31 @@ class JobSummary(BaseModel):
     n_rows: int | None
     n_columns: int | None
     size_bytes: int
+    target_column: str | None
+    task_type: str | None
     error_message: str | None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ConfirmJobRequest(ConfirmedSchema):
+    """The confirmed schema, plus which job it belongs to.
+
+    Extends ``ConfirmedSchema`` so the target/task/exclusion validation is
+    shared with the agent layer and defined once.
+    """
+
+    job_id: int
+
+    def as_confirmed_schema(self) -> ConfirmedSchema:
+        """The schema without the transport-only ``job_id``, for persistence."""
+        return ConfirmedSchema(
+            target_column=self.target_column,
+            task_type=self.task_type,
+            columns=self.columns,
+        )
 
 
 class ArtifactSummary(BaseModel):

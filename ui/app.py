@@ -79,10 +79,10 @@ st.markdown(
     """
 | Section | Status |
 |---|---|
-| 0 · Skeleton | ✅ in progress |
-| 1 · Upload | ⬜ not started |
-| 2 · LLM client | ⬜ not started |
-| 3 · Schema detection & human checkpoint | ⬜ not started |
+| 0 · Skeleton | ✅ done |
+| 1 · Upload | ✅ done |
+| 2 · LLM client | ✅ done |
+| 3 · Schema detection & human checkpoint | ✅ done |
 | 4 · Background worker | ⬜ not started |
 | 5 · Vertical slice | ⬜ not started |
 
