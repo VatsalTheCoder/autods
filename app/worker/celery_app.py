@@ -1,8 +1,9 @@
 """Celery application.
 
-Section 0 defines the worker and one trivial task, purely to prove the
-API -> Redis -> worker path works. The real pipeline task arrives in Section 4,
-where these placeholders are replaced by LangGraph nodes.
+Section 0 defined the worker and a trivial ``ping`` task to prove the
+API -> Redis -> worker path works. Section 4 adds the real pipeline task
+(``autods.run_pipeline``), discovered from ``app.worker.tasks`` at worker
+startup and dispatched by ``POST /jobs``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,9 @@ celery_app.conf.update(
     # Results outlive a demo session but do not accumulate forever.
     result_expires=86400,
 )
+
+# Import app.worker.tasks on worker startup so the pipeline task registers.
+celery_app.autodiscover_tasks(["app.worker"])
 
 
 @celery_app.task(name="autods.ping")

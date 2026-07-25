@@ -103,7 +103,18 @@ class TestLLMEnrichedUpload:
 
 
 class TestConfirmation:
-    def test_confirm_sets_target_task_and_status(self, client, upload):
+    @pytest.fixture(autouse=True)
+    def stub_enqueue(self, monkeypatch):
+        """Confirming now dispatches the pipeline; stub the dispatch so the live
+        worker does not asynchronously mutate status mid-assertion. Returns the
+        list of job ids that would have been queued."""
+        calls: list[int] = []
+        monkeypatch.setattr(
+            "app.api.routes.upload.enqueue_pipeline", lambda job_id: calls.append(job_id)
+        )
+        return calls
+
+    def test_confirm_sets_target_task_and_queues(self, client, upload, stub_enqueue):
         job_id = upload().json()["job_id"]
 
         resp = client.post(
@@ -121,12 +132,16 @@ class TestConfirmation:
         body = resp.json()
         assert body["target_column"] == "churn"
         assert body["task_type"] == "classification"
-        assert body["status"] == JobStatus.CONFIRMED.value
+        # Confirming launches the pipeline, so the job is QUEUED, not just saved.
+        assert body["status"] == JobStatus.QUEUED.value
 
         with SessionLocal() as db:
             job = db.get(Job, job_id)
-            assert job.status is JobStatus.CONFIRMED
+            assert job.status is JobStatus.QUEUED
             assert job.target_column == "churn"
+
+        # The pipeline was handed to the worker exactly once, for this job.
+        assert stub_enqueue == [job_id]
 
     def test_confirmed_schema_artifact_is_saved(self, client, upload):
         job_id = upload().json()["job_id"]

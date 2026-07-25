@@ -83,7 +83,7 @@ st.markdown(
 | 1 · Upload | ✅ done |
 | 2 · LLM client | ✅ done |
 | 3 · Schema detection & human checkpoint | ✅ done |
-| 4 · Background worker | ⬜ not started |
+| 4 · Background worker | ✅ done |
 | 5 · Vertical slice | ⬜ not started |
 
 See `BUILD_PLAN.md` for the full plan.
