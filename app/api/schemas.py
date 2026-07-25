@@ -116,5 +116,12 @@ class ArtifactLink(BaseModel):
     expires_in_seconds: int
 
 
+class ReportResponse(BaseModel):
+    """The Markdown report, served as text for the UI to render (Section 5)."""
+
+    job_id: int
+    markdown: str
+
+
 class ErrorResponse(BaseModel):
     detail: str

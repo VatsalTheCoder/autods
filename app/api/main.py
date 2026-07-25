@@ -1,6 +1,7 @@
 """FastAPI application.
 
-Section 0 exposes only /health. Upload and job endpoints arrive in Sections 1-4.
+Section 0 exposes only /health. Upload and job endpoints arrive in Sections 1-4,
+and the results endpoints the Results page reads in Section 5.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.api.routes import upload
+from app.api.routes import results, upload
 from app.core.config import get_settings
 from app.core.db import database_healthy
 from app.core.storage import storage_healthy
@@ -30,6 +31,7 @@ app = FastAPI(
 
 
 app.include_router(upload.router)
+app.include_router(results.router)
 
 
 class HealthResponse(BaseModel):

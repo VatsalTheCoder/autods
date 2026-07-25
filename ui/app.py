@@ -3,7 +3,9 @@
 Section 0 renders a single page that calls the API's /health endpoint. Trivial
 on purpose: it proves the UI container can reach the API container across the
 Docker network, which is exactly the integration that tends to break first.
-The Upload, Progress, Results and Chat pages arrive in Sections 1-10.
+
+The Upload, Progress and Results pages arrived in Sections 1, 4 and 5, which
+together make the product demoable end to end; the Chat page follows in Section 10.
 """
 
 from __future__ import annotations
@@ -84,7 +86,8 @@ st.markdown(
 | 2 · LLM client | ✅ done |
 | 3 · Schema detection & human checkpoint | ✅ done |
 | 4 · Background worker | ✅ done |
-| 5 · Vertical slice | ⬜ not started |
+| 5 · Vertical slice *(milestone M1)* | ✅ done |
+| 6 · EDA & clustering | ⬜ not started |
 
 See `BUILD_PLAN.md` for the full plan.
 """

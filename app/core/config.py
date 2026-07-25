@@ -94,12 +94,21 @@ class Settings(BaseSettings):
     llm_backoff_retries: int = 5
     llm_request_timeout: int = 60
 
-    # ---- Pipeline (Section 4) -------------------------------------------
-    # Section 4's nodes are placeholders that only sleep, so the distributed
-    # execution can be proven before real work goes in. This controls how long
-    # each pretends to work -- long enough that the Progress bar visibly ticks,
-    # short enough not to bore a demo. Tests set it to 0 for speed.
-    pipeline_placeholder_sleep_seconds: float = 1.0
+    # ---- Pipeline / modelling (Section 5) -------------------------------
+    # Cross-validation folds. Five is the spec's figure (7.7) and the usual
+    # bias/variance compromise; exposed because a tiny demo dataset may not have
+    # enough rows per class to support five stratified folds.
+    cv_folds: int = 5
+
+    # One seed for every random choice in the pipeline -- fold shuffling and the
+    # model's own randomness. Fixed and configurable so a reported score is
+    # reproducible, which is the first thing an examiner will try.
+    random_seed: int = 42
+
+    # Cleaning drops a column whose values are missing more often than this.
+    # A column that is 90% blank carries almost no signal but forces every row
+    # through imputation, so it is removed structurally rather than filled in.
+    max_null_column_rate: float = 0.6
 
     @property
     def is_local(self) -> bool:
