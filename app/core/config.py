@@ -62,6 +62,38 @@ class Settings(BaseSettings):
     # ---- Uploads --------------------------------------------------------
     max_upload_mb: int = 200
 
+    # ---- LLM (Google AI Studio) -----------------------------------------
+    # Both Gemma tiers are served by the free Google AI Studio API (spec
+    # section 6.3). The key lives in Secrets Manager on AWS and in .env
+    # locally -- never in the image. When it is unset the real client refuses
+    # to start, which is deliberate: it forces the FakeLLM path in tests.
+    google_api_key: str | None = None
+
+    # Model ids are settings, not constants, because spec section 6.3 flags the
+    # exact "Gemma 4" names as UNVERIFIED. Whatever the provider actually calls
+    # the two tiers, it is one env var away -- no code change. Override both
+    # before pointing the real client at live traffic.
+    llm_model_small: str = "gemma-3-4b-it"
+    llm_model_large: str = "gemma-3-27b-it"
+
+    # Free-tier rate limits, per tier, per the spec's stated figures. These are
+    # ALSO flagged unverified there, and the input-TPM cap is the binding
+    # constraint the whole prompt-shrinking strategy (Section 9) rests on, so
+    # they are env-overridable rather than hardcoded into the limiter. Confirm
+    # against live provider docs before sizing anything on top of them.
+    llm_small_rpm: int = 30
+    llm_small_input_tpm: int = 15_000
+    llm_large_rpm: int = 30
+    llm_large_input_tpm: int = 15_000
+
+    # How many times structured_complete re-asks the model after malformed or
+    # schema-invalid output before failing the job (spec section 10).
+    llm_max_retries: int = 3
+    # How many times a single call is retried through exponential backoff after
+    # the provider answers HTTP 429 (rate-limited), separate from the above.
+    llm_backoff_retries: int = 5
+    llm_request_timeout: int = 60
+
     @property
     def is_local(self) -> bool:
         return self.environment == "local"
