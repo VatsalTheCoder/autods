@@ -36,6 +36,8 @@ from app.models.user import DEV_USER_ID
 from app.services.artifacts import (
     CLEANED_DATASET_ARTIFACT,
     CLEANING_ARTIFACT,
+    CLUSTERING_ARTIFACT,
+    EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
@@ -131,6 +133,8 @@ class TestArtifacts:
         [
             PLANNER_ARTIFACT,
             CLEANING_ARTIFACT,
+            EDA_ARTIFACT,
+            CLUSTERING_ARTIFACT,
             PREPROCESSING_ARTIFACT,
             EVALUATION_ARTIFACT,
         ],
@@ -138,6 +142,22 @@ class TestArtifacts:
     def test_json_artifacts_are_registered_and_readable(self, completed_job, name):
         with SessionLocal() as db:
             assert load_json_artifact(db, completed_job, name) is not None
+
+    def test_charts_are_stored_as_real_pngs(self, completed_job):
+        """Section 6's output has to survive the round trip through S3."""
+        with SessionLocal() as db:
+            eda = load_json_artifact(db, completed_job, EDA_ARTIFACT)
+            assert eda["plots"], "no charts were produced"
+            for name in eda["plots"]:
+                data = load_artifact_bytes(db, completed_job, name)
+                assert data.startswith(b"\x89PNG"), name
+
+    def test_the_cleaned_dataset_has_no_cluster_column(self, completed_job):
+        """The guardrail, checked on what a real run actually stored (spec 9)."""
+        with SessionLocal() as db:
+            data = load_artifact_bytes(db, completed_job, CLEANED_DATASET_ARTIFACT)
+        columns = pd.read_csv(io.BytesIO(data)).columns
+        assert not [c for c in columns if "cluster" in c.lower()]
 
     def test_the_cleaned_dataset_is_stored(self, completed_job):
         with SessionLocal() as db:
@@ -221,6 +241,7 @@ class TestFailurePath:
             assert {r.name for r in job.agent_runs if r.status is AgentRunStatus.COMPLETED} == {
                 "planner",
                 "cleaning",
+                "eda",
                 "preprocessing",
             }
             assert load_json_artifact(db, confirmed_job, CLEANING_ARTIFACT) is not None
@@ -313,6 +334,26 @@ class TestVisibleViaAPI:
     def test_the_cleaning_endpoint_serves_the_cleaning_report(self, completed_job):
         body = TestClient(app).get(f"/jobs/{completed_job}/cleaning").json()
         assert body["duplicate_rows_removed"] == 1
+
+    def test_the_eda_endpoint_serves_the_statistics_and_chart_index(self, completed_job):
+        body = TestClient(app).get(f"/jobs/{completed_job}/eda").json()
+        assert body["target_column"] == "churn"
+        assert {c["name"] for c in body["columns"]}
+        assert "target_distribution.png" in body["plots"]
+
+    def test_the_clustering_endpoint_serves_the_groups(self, completed_job):
+        body = TestClient(app).get(f"/jobs/{completed_job}/clustering").json()
+        assert body["method"] in ("kmeans", "kprototypes")
+        assert len(body["profiles"]) == body["k"]
+
+    def test_a_chart_can_be_fetched_as_a_png(self, completed_job):
+        """End of the chain: the browser can actually display an EDA chart."""
+        resp = TestClient(app).get(
+            f"/jobs/{completed_job}/artifacts/target_distribution.png/content"
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content.startswith(b"\x89PNG")
 
     def test_artifacts_are_listed_for_the_results_page(self, completed_job):
         body = TestClient(app).get(f"/jobs/{completed_job}/artifacts").json()

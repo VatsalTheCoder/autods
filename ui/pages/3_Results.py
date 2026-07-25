@@ -141,6 +141,88 @@ if evaluation.get("warnings"):
         for warning in evaluation["warnings"]:
             st.markdown(f"- {warning}")
 
+# ---- What the data looks like ----------------------------------------------
+# Charts come through the API rather than a presigned URL: those are signed
+# against the storage endpoint, which a browser cannot resolve locally.
+
+st.divider()
+eda, _ = fetch("eda")
+if eda:
+    st.subheader("What the data looks like")
+
+    if eda.get("class_balance", {}) and eda["class_balance"].get("imbalanced"):
+        st.warning(
+            f"The target classes are imbalanced "
+            f"({eda['class_balance']['imbalance_ratio']:.1f} to 1). Accuracy "
+            "flatters a model on skewed data — read the macro F1 above instead."
+        )
+
+    plots = eda.get("plots", [])
+    # The cluster scatter belongs with the cluster descriptions further down.
+    chart_names = [p for p in plots if p != "cluster_scatter.png"]
+    for left, right in zip(chart_names[::2], chart_names[1::2] + [None], strict=False):
+        columns = st.columns(2)
+        for column, name in zip(columns, (left, right), strict=False):
+            if name:
+                column.image(f"{API_BASE_URL}/jobs/{job_id}/artifacts/{name}/content")
+
+    if eda.get("top_correlations"):
+        with st.expander("Columns that move together"):
+            st.dataframe(
+                [
+                    {
+                        "Column": pair["left"],
+                        "Column ": pair["right"],
+                        "Correlation": round(pair["correlation"], 3),
+                    }
+                    for pair in eda["top_correlations"]
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+
+# ---- Groups found in the data ----------------------------------------------
+
+clustering, _ = fetch("clustering")
+if clustering and clustering.get("k"):
+    st.divider()
+    st.subheader("Natural groups in the data")
+    st.caption(
+        f"{clustering['method']} · {clustering['k']} groups · silhouette "
+        f"{clustering['silhouette']:.2f} (1.0 would be perfectly separated, "
+        "0 no better than arbitrary)"
+    )
+
+    scatter, descriptions = st.columns([3, 2])
+    if clustering.get("scatter_plot"):
+        scatter.image(
+            f"{API_BASE_URL}/jobs/{job_id}/artifacts/{clustering['scatter_plot']}/content"
+        )
+
+    with descriptions:
+        for profile in clustering.get("profiles", []):
+            text = profile.get("description") or ""
+            descriptions.markdown(
+                f"**Group {profile['cluster']}** — {profile['size']:,} rows "
+                f"({profile['share']:.0%})"
+            )
+            if text:
+                descriptions.caption(text)
+            for name, detail in profile.get("distinguishing_features", {}).items():
+                descriptions.markdown(f"- `{name}`: {detail}")
+
+    # The guardrail, said where a reader of the results will see it.
+    st.info(
+        "These groups describe the data — they were **not** given to the model as "
+        "an input. They are computed using every row, including the rows held out "
+        "for testing, so using them as a feature would inflate the scores above."
+    )
+
+    if clustering.get("warnings"):
+        with st.expander("Clustering caveats"):
+            for warning in clustering["warnings"]:
+                st.markdown(f"- {warning}")
+
 # ---- The report -------------------------------------------------------------
 
 st.divider()

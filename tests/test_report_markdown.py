@@ -11,13 +11,20 @@ from __future__ import annotations
 
 import pytest
 
+from app.agents.schema_models import ClassBalance
 from app.ml.contracts import (
     CleaningReport,
+    ClusteringReport,
+    ClusterProfile,
+    ColumnStatistics,
+    CorrelationPair,
     DroppedColumn,
     DtypeCorrection,
+    EdaReport,
     EvaluationReport,
     FoldScore,
     MetricSummary,
+    NumericSummary,
     PlannerPlan,
     PreprocessingSpec,
 )
@@ -247,6 +254,110 @@ class TestRegressionReport:
         assert "RMSE" in report
         # Large error values get thousands separators, not a long decimal tail.
         assert "15,234.50" in report
+
+
+class TestEdaAndClusteringSections:
+    """Section 6's findings, and the guardrail restated where a reader sees it."""
+
+    def build(self, cleaning, preprocessing, evaluation, *, eda=None, clustering=None):
+        return build_markdown_report(
+            filename="x.csv",
+            plan=PlannerPlan(),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            eda=eda,
+            clustering=clustering,
+        )
+
+    def test_the_report_still_builds_without_eda(self, cleaning, preprocessing, evaluation):
+        """A failed descriptive stage must not cost the reader the model results."""
+        report = self.build(cleaning, preprocessing, evaluation)
+        assert "## Result" in report
+        assert "## Natural groups" not in report
+
+    def test_imbalance_is_explained_not_just_stated(self, cleaning, preprocessing, evaluation):
+        eda = EdaReport(
+            n_rows=100,
+            n_columns=4,
+            target_column="churn",
+            class_balance=ClassBalance(
+                counts={"no": 90, "yes": 10}, imbalance_ratio=9.0, imbalanced=True
+            ),
+        )
+        report = self.build(cleaning, preprocessing, evaluation, eda=eda)
+        assert "imbalanced" in report
+        assert "macro F1" in report
+
+    def test_correlations_are_listed(self, cleaning, preprocessing, evaluation):
+        eda = EdaReport(
+            n_rows=100,
+            n_columns=4,
+            target_column="churn",
+            top_correlations=[CorrelationPair(left="age", right="income", correlation=0.82)],
+        )
+        report = self.build(cleaning, preprocessing, evaluation, eda=eda)
+        assert "age" in report and "+0.82" in report
+
+    def test_outliers_are_reported_as_kept(self, cleaning, preprocessing, evaluation):
+        eda = EdaReport(
+            n_rows=100,
+            n_columns=1,
+            target_column="churn",
+            columns=[
+                ColumnStatistics(
+                    name="income",
+                    semantic_type="numeric",
+                    count=100,
+                    missing=0,
+                    missing_rate=0.0,
+                    numeric=NumericSummary(
+                        mean=1,
+                        std=1,
+                        minimum=0,
+                        q1=0,
+                        median=1,
+                        q3=2,
+                        maximum=9,
+                        outlier_count=7,
+                    ),
+                )
+            ],
+        )
+        report = self.build(cleaning, preprocessing, evaluation, eda=eda)
+        assert "left in the data" in report
+
+    def test_groups_are_described_with_their_sizes(self, cleaning, preprocessing, evaluation):
+        clustering = ClusteringReport(
+            method="kmeans",
+            k=2,
+            silhouette=0.62,
+            profiles=[
+                ClusterProfile(cluster=0, size=60, share=0.6, description="Younger customers."),
+                ClusterProfile(cluster=1, size=40, share=0.4),
+            ],
+        )
+        report = self.build(cleaning, preprocessing, evaluation, clustering=clustering)
+        assert "Group 0" in report
+        assert "Younger customers." in report
+        assert "60" in report
+
+    def test_the_guardrail_is_stated_in_the_report(self, cleaning, preprocessing, evaluation):
+        """A reader should learn the labels were not fed to the model."""
+        clustering = ClusteringReport(
+            method="kmeans",
+            k=2,
+            silhouette=0.62,
+            profiles=[ClusterProfile(cluster=0, size=100, share=1.0)],
+        )
+        report = self.build(cleaning, preprocessing, evaluation, clustering=clustering)
+        assert "not** given to the model" in report
+        assert "inflate" in report
+
+    def test_a_skipped_clustering_run_adds_no_section(self, cleaning, preprocessing, evaluation):
+        clustering = ClusteringReport(method="kmeans", k=0, silhouette=0.0)
+        report = self.build(cleaning, preprocessing, evaluation, clustering=clustering)
+        assert "## Natural groups" not in report
 
 
 def test_the_report_is_valid_markdown_structure(markdown):

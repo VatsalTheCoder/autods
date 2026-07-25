@@ -37,6 +37,34 @@ def schema():
     return profile_dataset(frame)
 
 
+class TestClusteringChoice:
+    """Section 6 gives the planner the clustering decision (spec 9)."""
+
+    def test_the_models_method_is_recorded(self, schema):
+        client = FakeLLM(['{"clustering_method": "kprototypes", "rationale": "Mixed types."}'])
+        assert make_plan(schema, client=client).clustering_method == "kprototypes"
+
+    def test_clustering_can_be_turned_off(self, schema):
+        client = FakeLLM(['{"run_clustering": false, "rationale": "Too small."}'])
+        assert make_plan(schema, client=client).run_clustering is False
+
+    def test_an_invalid_method_falls_back_rather_than_failing(self, schema):
+        """An unknown method fails validation, so the plan degrades to defaults."""
+        client = FakeLLM(['{"clustering_method": "dbscan"}'] * 10, default="{}")
+        plan = make_plan(schema, client=client)
+        assert plan.clustering_method in ("kmeans", "kprototypes")
+
+    def test_the_defaults_are_workable(self, schema):
+        plan = make_plan(schema, client=None)
+        assert plan.run_clustering is True
+        assert plan.clustering_method == "kmeans"
+
+    def test_the_prompt_asks_about_clustering(self, schema):
+        client = FakeLLM([VALID_PLAN])
+        make_plan(schema, client=client)
+        assert "kprototypes" in client.last_prompt
+
+
 class TestWithAWorkingModel:
     def test_the_models_flags_are_obeyed(self, schema):
         plan = make_plan(schema, client=FakeLLM([VALID_PLAN]))

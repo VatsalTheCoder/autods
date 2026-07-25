@@ -28,10 +28,12 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ReportResponse
 from app.core.db import get_db
 from app.core.storage import StorageError
-from app.ml.contracts import CleaningReport, EvaluationReport
+from app.ml.contracts import CleaningReport, ClusteringReport, EdaReport, EvaluationReport
 from app.models.job import Job
 from app.services.artifacts import (
     CLEANING_ARTIFACT,
+    CLUSTERING_ARTIFACT,
+    EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     REPORT_ARTIFACT,
     load_artifact_bytes,
@@ -97,6 +99,29 @@ def get_evaluation(job_id: int, db: Session = Depends(get_db)) -> EvaluationRepo
 )
 def get_cleaning(job_id: int, db: Session = Depends(get_db)) -> CleaningReport:
     return CleaningReport.model_validate(_load_or_404(db, job_id, CLEANING_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/eda",
+    response_model=EdaReport,
+    summary="Descriptive statistics and the list of charts",
+)
+def get_eda(job_id: int, db: Session = Depends(get_db)) -> EdaReport:
+    """The statistics, plus the artifact names of the charts.
+
+    The chart *bytes* come from the content endpoint below; this returns the
+    index, so the UI knows what exists before fetching any of it.
+    """
+    return EdaReport.model_validate(_load_or_404(db, job_id, EDA_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/clustering",
+    response_model=ClusteringReport,
+    summary="The groups found in the data, and how well separated they are",
+)
+def get_clustering(job_id: int, db: Session = Depends(get_db)) -> ClusteringReport:
+    return ClusteringReport.model_validate(_load_or_404(db, job_id, CLUSTERING_ARTIFACT))
 
 
 @router.get(

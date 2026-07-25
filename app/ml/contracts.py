@@ -21,20 +21,22 @@ from pydantic import BaseModel, Field
 # classification or regression" in the codebase, and the schema the user
 # confirmed is where it comes from; a parallel Literal here would be one
 # rename away from silently disagreeing with it.
-from app.agents.schema_models import TaskType
+from app.agents.schema_models import ClassBalance, TaskType
 
 # ---- The planner's output ---------------------------------------------------
+
+
+ClusteringMethod = Literal["kmeans", "kprototypes"]
 
 
 class PlannerPlan(BaseModel):
     """The plan the LLM writes, and the flags the pipeline actually obeys.
 
-    Deliberately tiny (build-plan Section 5: "one or two on/off switches").
     Every field here is read by a later node -- there are no aspirational
     settings nothing consumes, because a plan field that changes no behaviour is
-    just a lie in an artifact. The model roster and SMOTE toggle the spec's
-    Planner (7.3) also owns arrive with Sections 7 and 8, when something exists
-    to switch between.
+    just a lie in an artifact. Section 5 started with two booleans; Section 6 adds
+    the clustering choice the spec gives the Planner (9). SMOTE and the model
+    roster arrive in Sections 7 and 8, when there is something to switch between.
     """
 
     drop_duplicate_rows: bool = Field(
@@ -45,6 +47,22 @@ class PlannerPlan(BaseModel):
         default=True,
         description="Drop columns that are mostly empty rather than imputing them.",
     )
+
+    # Spec 9 gives the Planner this choice, but the rule behind it is mechanical
+    # and the wrong answer is not merely suboptimal -- K-Means on categorical data
+    # requires inventing Euclidean distances between labels that have none. So the
+    # model states a preference and ``clustering.py`` overrides it when the data
+    # cannot support it, recording that it did. Same shape as schema detection
+    # validating the LLM's target against the columns that actually exist.
+    clustering_method: ClusteringMethod = Field(
+        default="kmeans",
+        description="kmeans for all-numeric data; kprototypes when categories are present.",
+    )
+    run_clustering: bool = Field(
+        default=True,
+        description="Whether looking for natural groupings is worthwhile here.",
+    )
+
     rationale: str = Field(default="", description="One or two sentences on why.")
 
     # Whether the LLM was actually consulted. The pipeline runs identically
@@ -167,3 +185,130 @@ class EvaluationReport(BaseModel):
     def primary_score(self) -> float | None:
         summary = self.metrics.get(self.primary_metric)
         return summary.mean if summary else None
+
+
+# ---- EDA (Section 6) --------------------------------------------------------
+
+
+class NumericSummary(BaseModel):
+    """The five-number summary plus mean and spread, for one numeric column."""
+
+    mean: float
+    std: float
+    minimum: float
+    q1: float
+    median: float
+    q3: float
+    maximum: float
+    # Rows beyond 1.5x the interquartile range from the quartiles. Reported, not
+    # removed: an outlier is often the most interesting row in the dataset, and
+    # deciding to drop one is a modelling choice the user should make knowingly.
+    outlier_count: int = 0
+
+
+class CategorySummary(BaseModel):
+    """What a categorical column actually contains."""
+
+    n_unique: int
+    # The commonest values and their counts, capped -- enough to see the shape of
+    # the distribution without embedding a whole column in a JSON report.
+    top_values: dict[str, int] = Field(default_factory=dict)
+
+
+class ColumnStatistics(BaseModel):
+    """One column's summary. Exactly one of the two summaries is populated."""
+
+    name: str
+    semantic_type: str
+    count: int
+    missing: int
+    missing_rate: float = Field(..., ge=0.0, le=1.0)
+    numeric: NumericSummary | None = None
+    categorical: CategorySummary | None = None
+
+
+class CorrelationPair(BaseModel):
+    """Two columns that move together, and how strongly."""
+
+    left: str
+    right: str
+    correlation: float
+
+
+class EdaReport(BaseModel):
+    """``eda_report.json`` -- the descriptive picture of the cleaned dataset."""
+
+    n_rows: int
+    n_columns: int
+    target_column: str
+    columns: list[ColumnStatistics] = Field(default_factory=list)
+
+    # Strongest absolute Pearson correlations between numeric columns. Ranked
+    # because the interesting content of a correlation matrix is its extremes,
+    # and a reader should not have to scan a grid to find them.
+    top_correlations: list[CorrelationPair] = Field(default_factory=list)
+    class_balance: ClassBalance | None = None
+
+    # Artifact names of the charts, in display order. The bytes live in S3 and
+    # are served by GET /jobs/{id}/artifacts/{name}/content.
+    plots: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+# ---- Clustering (Section 6) -------------------------------------------------
+
+
+class ClusterProfile(BaseModel):
+    """One discovered group: how big it is, what marks it out, what it means."""
+
+    cluster: int
+    size: int
+    share: float = Field(..., ge=0.0, le=1.0)
+    # The few features on which this group departs most from the dataset average.
+    # Computed in code; this is what the LLM is given to describe, so its summary
+    # is grounded in measured differences rather than invented ones.
+    distinguishing_features: dict[str, str] = Field(default_factory=dict)
+    # The LLM's plain-language description. Empty when no model was available --
+    # the clustering itself does not depend on it.
+    description: str = ""
+
+
+class ClusteringReport(BaseModel):
+    """``clustering_report.json`` -- the groupings, and the guardrail restated.
+
+    Clustering here is **EDA insight only**. Cluster labels are never added to the
+    dataset as a feature: they are computed over every row, including the rows
+    that later land in a test fold, so feeding them to the model would leak
+    exactly like fitting a scaler up front (spec 9). The labels exist to colour a
+    scatter plot and to be described in words, and nothing else.
+    """
+
+    method: ClusteringMethod
+    k: int
+    # Mean silhouette at the chosen k: roughly, how much better-separated the
+    # groups are than chance. Near 0 means the "groups" are arbitrary slices, and
+    # the report says so rather than presenting them as discoveries.
+    silhouette: float
+    # Every k tried, so a reader can see the choice was searched and not assumed.
+    silhouette_by_k: dict[int, float] = Field(default_factory=dict)
+
+    profiles: list[ClusterProfile] = Field(default_factory=list)
+    scatter_plot: str | None = None
+    # Set when the planner's method was overridden because the data could not
+    # support it -- an artifact should never imply a choice that was not obeyed.
+    method_override_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+    def is_weak(self) -> bool:
+        """True when the groups are not separated enough to present as findings.
+
+        The threshold is Kaufman & Rousseeuw's boundary between "reasonable
+        structure" (above 0.5) and "weak, could be artificial" (below it). It is
+        set here rather than at their lower 0.25 line -- "no substantial
+        structure" -- for a measured reason: k-means on *pure Gaussian noise*
+        scores about 0.36 on this pipeline, because partitioning a single blob
+        produces respectable-looking silhouettes. Anything under 0.5 therefore
+        has to be hedged, or the tool would report invented segments in random
+        data as discoveries.
+        """
+        return self.silhouette < 0.5

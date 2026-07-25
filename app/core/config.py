@@ -110,6 +110,28 @@ class Settings(BaseSettings):
     # through imputation, so it is removed structurally rather than filled in.
     max_null_column_rate: float = 0.6
 
+    # ---- EDA & clustering (Section 6) -----------------------------------
+    # The range of k the silhouette search tries. Two is the smallest number of
+    # groups that means anything; beyond about eight, "natural groupings" stop
+    # being something an LLM can describe usefully or a scatter plot can show.
+    cluster_k_min: int = 2
+    cluster_k_max: int = 8
+
+    # Clustering every row of a large dataset to pick k is wasted work -- the
+    # silhouette score stabilises long before then. Above this, k selection runs
+    # on a random sample and the chosen k is applied to everything.
+    cluster_sample_size: int = 5_000
+
+    # Charts are rendered headlessly to PNG. 110 DPI is legible on a laptop
+    # screen without producing megabyte images the API has to stream.
+    plot_dpi: int = 110
+    # A correlation heatmap of 80 columns is an unreadable smear; cap what is
+    # drawn and say so in the report rather than emitting something useless.
+    max_heatmap_columns: int = 25
+    # How many histograms/boxplots to draw before stopping. A 200-column dataset
+    # does not need 200 charts on a results page.
+    max_distribution_plots: int = 12
+
     @property
     def is_local(self) -> bool:
         return self.environment == "local"

@@ -87,7 +87,8 @@ st.markdown(
 | 3 · Schema detection & human checkpoint | ✅ done |
 | 4 · Background worker | ✅ done |
 | 5 · Vertical slice *(milestone M1)* | ✅ done |
-| 6 · EDA & clustering | ⬜ not started |
+| 6 · EDA & clustering *(milestone M2)* | ✅ done |
+| 7 · Feature engineering | ⬜ not started |
 
 See `BUILD_PLAN.md` for the full plan.
 """

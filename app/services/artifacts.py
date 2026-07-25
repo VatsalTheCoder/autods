@@ -44,6 +44,10 @@ CONFIRMED_SCHEMA_ARTIFACT = "confirmed_schema.json"
 PLANNER_ARTIFACT = "planner_report.json"
 CLEANING_ARTIFACT = "cleaning_report.json"
 CLEANED_DATASET_ARTIFACT = "cleaned_dataset.csv"
+# Section 6. The charts themselves are registered under their own filenames
+# (``target_distribution.png`` and friends); these two index them.
+EDA_ARTIFACT = "eda_report.json"
+CLUSTERING_ARTIFACT = "clustering_report.json"
 PREPROCESSING_ARTIFACT = "preprocessing_report.json"
 PREPROCESSOR_ARTIFACT = "preprocessing_pipeline.pkl"
 EVALUATION_ARTIFACT = "evaluation_report.json"

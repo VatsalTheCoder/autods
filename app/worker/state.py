@@ -29,6 +29,8 @@ from sklearn.compose import ColumnTransformer
 from app.agents.schema_models import SchemaReport
 from app.ml.contracts import (
     CleaningReport,
+    ClusteringReport,
+    EdaReport,
     EvaluationReport,
     PlannerPlan,
     PreprocessingSpec,
@@ -67,6 +69,13 @@ class PipelineState(TypedDict, total=False):
     plan: PlannerPlan
     cleaned: pd.DataFrame
     cleaning_report: CleaningReport
+
+    # Section 6. Descriptive only -- note there is no field for cluster *labels*.
+    # They exist inside the EDA node and are never put on the clipboard, because
+    # a label on the shared state is one autocomplete away from becoming a model
+    # feature, which would leak (spec 9). The reports carry the findings.
+    eda_report: EdaReport
+    clustering_report: ClusteringReport
     # The unfitted recipe. It travels as an object precisely so that the next
     # node can clone it per fold rather than reach for something already fitted.
     preprocessor: ColumnTransformer
@@ -83,6 +92,11 @@ class PipelineState(TypedDict, total=False):
 PIPELINE_NODES: list[str] = [
     "planner",
     "cleaning",
+    # Section 6. Sits after cleaning so the charts describe the data the model
+    # actually saw, and before preprocessing because it is purely descriptive --
+    # nothing downstream depends on its output, which is what lets it fail
+    # without taking the model with it.
+    "eda",
     "preprocessing",
     "modeling",
     "evaluation",

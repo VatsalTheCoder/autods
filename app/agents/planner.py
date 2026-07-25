@@ -28,13 +28,19 @@ logger = logging.getLogger(__name__)
 AGENT_NAME = "planner"
 
 _SYSTEM = (
-    "You are planning the preparation of a tabular dataset before a model is "
-    "trained on it. You will be given a summary of the dataset's columns. "
-    "Decide two things. First, whether exactly-repeated rows should be removed "
-    "-- normally yes, but say no if repeated rows are plausibly meaningful "
-    "records rather than duplicates. Second, whether columns that are mostly "
-    "empty should be dropped rather than filled in -- normally yes. Give a one "
-    "or two sentence rationale. Do not suggest any other steps."
+    "You are planning how a tabular dataset should be prepared and explored "
+    "before a model is trained on it. You will be given a summary of its "
+    "columns. Decide four things.\n"
+    "1. Whether exactly-repeated rows should be removed -- normally yes, but say "
+    "no if repeated rows are plausibly meaningful records rather than duplicates.\n"
+    "2. Whether columns that are mostly empty should be dropped rather than "
+    "filled in -- normally yes.\n"
+    "3. Whether looking for natural groupings of rows is worthwhile here -- "
+    "normally yes, but say no for a dataset so small or narrow that groups would "
+    "be meaningless.\n"
+    "4. Which clustering method suits the data: 'kmeans' when every feature is "
+    "numeric, 'kprototypes' when there are categorical columns as well.\n"
+    "Give a one or two sentence rationale. Do not suggest any other steps."
 )
 
 
