@@ -125,9 +125,21 @@ def _semantic_type(series: pd.Series) -> SemanticType:
 
 def _looks_like_datetime(non_null: pd.Series) -> bool:
     """True when a string column parses cleanly as dates on a sample."""
-    sample = non_null.astype(str).head(_PII_SAMPLE)
+    sample = non_null.astype(str).str.strip().head(_PII_SAMPLE)
     if sample.empty:
         return False
+
+    # A column of bare digits is not a date. ``pd.to_datetime`` reads "1000" as
+    # the year 1000 and "20240101" as a date, so without this guard any column of
+    # four- to eight-digit numbers stored as text -- an amount, a postcode, a
+    # product code -- is classified as a datetime. From Section 5 that is not
+    # cosmetic: cleaning acts on this verdict and converts the column, and
+    # preprocessing then drops datetimes, so the column's signal is lost
+    # silently. Requiring a separator costs the compact "20240101" form, which is
+    # rarer than integer columns by a wide margin and would be caught as numeric.
+    if not sample.str.contains(r"[-/:\s.]").any():
+        return False
+
     parsed = pd.to_datetime(sample, errors="coerce", format="mixed")
     return parsed.notna().mean() >= 0.9
 

@@ -1,13 +1,13 @@
 """Tests for the pipeline graph structure.
 
 Pure -- builds and inspects the compiled graph without invoking it, so no
-database or worker is needed. Invocation (which writes status) is covered by the
-integration tests in test_pipeline.py.
+database or worker is needed. Invocation (which writes status and artifacts) is
+covered by the integration tests in test_pipeline.py.
 """
 
 from __future__ import annotations
 
-from app.worker.graph import build_pipeline_graph
+from app.worker.graph import NODE_FUNCTIONS, build_pipeline_graph
 from app.worker.state import PIPELINE_NODES
 
 
@@ -19,7 +19,7 @@ def test_graph_contains_every_pipeline_node():
 
 
 def test_pipeline_is_the_expected_sequence():
-    # The vertical-slice order Section 5 will implement in place.
+    # The vertical-slice order, implemented for real in Section 5.
     assert PIPELINE_NODES == [
         "planner",
         "cleaning",
@@ -28,6 +28,12 @@ def test_pipeline_is_the_expected_sequence():
         "evaluation",
         "report",
     ]
+
+
+def test_every_node_has_a_real_implementation():
+    """Section 4's placeholders are gone; each node maps to actual work."""
+    assert set(NODE_FUNCTIONS) == set(PIPELINE_NODES)
+    assert all(callable(fn) for fn in NODE_FUNCTIONS.values())
 
 
 def test_graph_compiles_to_something_invocable():

@@ -42,7 +42,12 @@ from app.core.storage import (
 from app.models.artifact import Artifact, ArtifactKind
 from app.models.job import Job, JobStatus
 from app.models.user import DEV_USER_ID
-from app.services.artifacts import load_json_artifact, register_json_artifact
+from app.services.artifacts import (
+    CONFIRMED_SCHEMA_ARTIFACT,
+    SCHEMA_ARTIFACT,
+    load_json_artifact,
+    register_json_artifact,
+)
 from app.services.csv_validation import (
     CSVValidationError,
     inspect_csv,
@@ -51,9 +56,6 @@ from app.services.csv_validation import (
 )
 from app.services.profiling import read_csv_frame
 from app.worker.tasks import enqueue_pipeline
-
-SCHEMA_ARTIFACT = "schema_report.json"
-CONFIRMED_SCHEMA_ARTIFACT = "confirmed_schema.json"
 
 logger = logging.getLogger(__name__)
 
