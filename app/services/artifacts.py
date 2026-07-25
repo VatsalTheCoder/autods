@@ -122,9 +122,20 @@ def load_json_artifact(db: Session, job_id: int, name: str) -> dict | None:
 
 def load_artifact_bytes(db: Session, job_id: int, name: str) -> bytes | None:
     """Read any artifact's raw bytes back, or None if the job never produced it."""
+    found = load_artifact_content(db, job_id, name)
+    return None if found is None else found[0]
+
+
+def load_artifact_content(db: Session, job_id: int, name: str) -> tuple[bytes, str] | None:
+    """Read an artifact's bytes *and* its recorded content type.
+
+    The content type comes from the row rather than being guessed from the file
+    extension, so whatever an agent declared when it registered the artifact is
+    what a browser is eventually told -- one source of truth for "what is this".
+    """
     artifact = db.execute(
         select(Artifact).where(Artifact.job_id == job_id, Artifact.name == name)
     ).scalar_one_or_none()
     if artifact is None:
         return None
-    return download_bytes(artifact.s3_key)
+    return download_bytes(artifact.s3_key), artifact.content_type

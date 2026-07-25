@@ -292,19 +292,21 @@ def get_artifact_link(
     expires_in: int = 3600,
     db: Session = Depends(get_db),
 ) -> ArtifactLink:
-    """Return a presigned URL.
+    """Return a presigned URL for fetching an artifact straight from storage.
 
-    Lets the browser fetch plots and reports straight from object storage,
-    without the API streaming bytes and without the bucket being public.
+    For a client that can reach object storage directly, this is the efficient
+    path: the bytes never pass through the API.
 
-    Known limitation (local development only): the URL is signed against
-    ``S3_ENDPOINT_URL``, which is ``http://minio:9000`` -- a hostname that only
-    resolves inside the Docker network. It works from the API and worker, but a
-    browser cannot follow it. Nothing renders artifacts in the browser yet, so
-    this is not currently reachable; Section 6 is the first to display plots and
-    must fix it, either by signing against a browser-reachable endpoint or by
-    proxying the bytes through the API. On AWS the problem disappears, since
-    real S3 URLs are publicly resolvable.
+    **The UI does not use it, and should not.** The URL is signed against
+    ``S3_ENDPOINT_URL`` -- locally ``http://minio:9000``, a hostname that resolves
+    only inside the Docker network, so a browser cannot follow it. On AWS real S3
+    URLs resolve fine, which is exactly what makes this a trap: it would work in
+    production and fail on every developer's laptop. Section 6 settled the
+    question by serving bytes through ``GET /jobs/{id}/artifacts/{name}/content``
+    instead, which behaves identically in both places.
+
+    Kept because a future non-browser consumer (a notebook, a bulk export) is
+    better served by a direct link than by streaming through the API.
     """
     artifact = db.execute(
         select(Artifact).where(Artifact.job_id == job_id, Artifact.name == name)

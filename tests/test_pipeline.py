@@ -326,6 +326,60 @@ class TestVisibleViaAPI:
         } <= names
 
 
+class TestArtifactContentEndpoint:
+    """Serving bytes through the API -- what makes charts displayable (Section 6).
+
+    A presigned URL cannot be followed from a browser against local MinIO, so the
+    Results page reads artifacts through here instead. These tests cover the three
+    shapes it has to handle: text, tabular and binary.
+    """
+
+    def test_markdown_is_served_with_its_own_content_type(self, completed_job):
+        resp = TestClient(app).get(f"/jobs/{completed_job}/artifacts/{REPORT_ARTIFACT}/content")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/markdown")
+        assert resp.text.startswith("# Analysis of")
+
+    def test_csv_is_served_as_csv(self, completed_job):
+        resp = TestClient(app).get(
+            f"/jobs/{completed_job}/artifacts/{CLEANED_DATASET_ARTIFACT}/content"
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/csv")
+        assert len(pd.read_csv(io.BytesIO(resp.content))) == N_ROWS
+
+    def test_binary_survives_the_round_trip(self, completed_job):
+        """A pickle served through the API must still load -- no text mangling."""
+        resp = TestClient(app).get(
+            f"/jobs/{completed_job}/artifacts/{PREPROCESSOR_ARTIFACT}/content"
+        )
+        assert resp.status_code == 200
+        restored = joblib.load(io.BytesIO(resp.content))
+        with pytest.raises(NotFittedError):
+            check_is_fitted(restored)
+
+    def test_the_artifacts_real_name_is_offered_for_download(self, completed_job):
+        """Otherwise a browser saves the file as "content"."""
+        resp = TestClient(app).get(f"/jobs/{completed_job}/artifacts/{REPORT_ARTIFACT}/content")
+        assert REPORT_ARTIFACT in resp.headers["content-disposition"]
+
+    def test_responses_are_cacheable_but_private(self, completed_job):
+        """Streamlit reruns its whole script per interaction; without this every
+        chart would be re-fetched on every click."""
+        resp = TestClient(app).get(f"/jobs/{completed_job}/artifacts/{REPORT_ARTIFACT}/content")
+        assert "private" in resp.headers["cache-control"]
+
+    def test_an_unknown_artifact_is_404(self, completed_job):
+        resp = TestClient(app).get(f"/jobs/{completed_job}/artifacts/nope.png/content")
+        assert resp.status_code == 404
+        assert "no artifact named" in resp.json()["detail"]
+
+    def test_an_unknown_job_is_distinguishable_from_an_unknown_artifact(self):
+        resp = TestClient(app).get("/jobs/99999999/artifacts/report.md/content")
+        assert resp.status_code == 404
+        assert "No job" in resp.json()["detail"]
+
+
 class TestResultsEndpointsBeforeCompletion:
     def test_evaluation_is_404_until_the_pipeline_produces_it(self, confirmed_job):
         resp = TestClient(app).get(f"/jobs/{confirmed_job}/evaluation")
