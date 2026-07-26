@@ -190,7 +190,9 @@ if features and features.get("columns"):
                 width="stretch",
             )
         elif features["source"] == "llm":
-            st.caption("Every choice the model made was buildable as stated; nothing was overruled.")
+            st.caption(
+                "Every choice the model made was buildable as stated; nothing was overruled."
+            )
 
 
 # ---- Folds ------------------------------------------------------------------

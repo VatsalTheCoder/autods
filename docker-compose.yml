@@ -92,6 +92,11 @@ services:
       # Mounted rather than baked into the image, so `make test` sees the
       # tests you just edited and the production image stays free of them.
       - ./tests:/code/tests
+      # The UI is not run from this container -- it is mounted because `make
+      # lint` runs here and lints the whole repo, as CI does. Without it,
+      # `ruff check .` reads the stale ui/ baked into the image at build time
+      # and passes on code CI then rejects, which is a slow way to find out.
+      - ./ui:/code/ui
       # Mounted so ruff and pytest configuration changes take effect without
       # an image rebuild.
       - ./pyproject.toml:/code/pyproject.toml
