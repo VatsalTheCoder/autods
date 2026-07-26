@@ -242,6 +242,7 @@ class TestFailurePath:
                 "planner",
                 "cleaning",
                 "eda",
+                "feature_strategy",
                 "preprocessing",
             }
             assert load_json_artifact(db, confirmed_job, CLEANING_ARTIFACT) is not None

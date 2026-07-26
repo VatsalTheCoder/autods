@@ -285,9 +285,7 @@ def _coerce(
         role = "categorical"
         order = []
 
-    impute = _coerce_choice(
-        item, "impute", item.impute, _ALLOWED_IMPUTE[role], _DEFAULT_IMPUTE[role], overrides
-    )
+    impute = _coerce_impute(item, series, role, overrides)
     encode = _coerce_choice(
         item, "encode", item.encode, _ALLOWED_ENCODE[role], _DEFAULT_ENCODE[role], overrides
     )
@@ -303,6 +301,39 @@ def _coerce(
         scale=scale,
         ordinal_order=order or [],
         rationale=item.rationale,
+    )
+
+
+def _coerce_impute(
+    item: ColumnStrategy,
+    series: pd.Series,
+    role: ColumnRole,
+    overrides: list[StrategyOverride],
+) -> ImputeStrategy:
+    """The buildable-choice check, plus one rule the tables cannot express.
+
+    "Do not fill this column's blanks" is a legitimate instruction for a column
+    that has none, and a fold-time crash for a column that does: every estimator
+    in the roster refuses NaN, and the failure would surface from inside the
+    cross-validation loop where it is least legible. So the choice is honoured
+    only when the column is actually complete.
+
+    Asking whether a column contains gaps is a schema question, not a statistic
+    -- the answer is a property of the dataset rather than a number the model
+    learns, and it does not vary with which rows land in which fold.
+    """
+    requested = _coerce_choice(
+        item, "impute", item.impute, _ALLOWED_IMPUTE[role], _DEFAULT_IMPUTE[role], overrides
+    )
+    if requested != "none" or role == "drop" or not bool(series.isna().any()):
+        return requested
+    return _override(
+        overrides,
+        item.column,
+        "impute",
+        "none",
+        _DEFAULT_IMPUTE[role],
+        f"the column has {int(series.isna().sum())} missing value(s), which no model accepts",
     )
 
 

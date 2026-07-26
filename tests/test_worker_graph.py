@@ -20,11 +20,14 @@ def test_graph_contains_every_pipeline_node():
 
 def test_pipeline_is_the_expected_sequence():
     # Section 5's vertical slice, with Section 6's descriptive stage inserted
-    # after cleaning -- so the charts describe the data the model actually saw.
+    # after cleaning -- so the charts describe the data the model actually saw --
+    # and Section 7's strategy step before preprocessing, because choosing how
+    # each column should be prepared is a separate act from building the recipe.
     assert PIPELINE_NODES == [
         "planner",
         "cleaning",
         "eda",
+        "feature_strategy",
         "preprocessing",
         "modeling",
         "evaluation",

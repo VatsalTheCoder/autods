@@ -28,6 +28,8 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.cluster_profiles import AGENT_NAME as CLUSTER_PROFILE_AGENT
 from app.agents.cluster_profiles import describe_clusters
+from app.agents.feature_strategy import AGENT_NAME as FEATURE_STRATEGY_AGENT
+from app.agents.feature_strategy import make_strategy
 from app.agents.planner import AGENT_NAME as PLANNER_AGENT
 from app.agents.planner import make_plan
 from app.core.db import SessionLocal
@@ -48,6 +50,7 @@ from app.services.artifacts import (
     CLUSTERING_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
+    FEATURE_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
     PREPROCESSOR_ARTIFACT,
@@ -164,6 +167,27 @@ def eda_node(state: PipelineState) -> dict:
     return {"eda_report": eda, "clustering_report": clustering.report}
 
 
+def feature_strategy_node(state: PipelineState) -> dict:
+    """Ask the LLM how each column should be prepared (spec 7.6).
+
+    Decision only -- nothing is built here and no data is touched. Splitting the
+    choosing from the building is the point: this node's output is a JSON table
+    that can be read, checked and disagreed with before any pipeline exists.
+    """
+    job_id = state["job_id"]
+    with SessionLocal() as db:
+        strategy = make_strategy(
+            state["cleaned"],
+            target=state["target"],
+            report=state.get("schema"),
+            client=get_optional_llm(),
+            on_usage=make_usage_recorder(db, job_id, FEATURE_STRATEGY_AGENT),
+        )
+        register_json_artifact(db, job_id, FEATURE_ARTIFACT, strategy)
+        db.commit()
+    return {"feature_strategy": strategy}
+
+
 def preprocessing_node(state: PipelineState) -> dict:
     """Build the **unfitted** recipe and store it without ever fitting it (spec 7.6).
 
@@ -173,7 +197,16 @@ def preprocessing_node(state: PipelineState) -> dict:
     this object.
     """
     job_id = state["job_id"]
-    result = build_preprocessor(state["cleaned"], target=state["target"])
+    result = build_preprocessor(
+        state["cleaned"],
+        target=state["target"],
+        strategy=state.get("feature_strategy"),
+        # Feature selection is a *step in the recipe*, not a pass over the data,
+        # so it is fitted per fold with everything else. The planner decides
+        # whether it happens at all; see ``select_k_for``.
+        select_k=state.get("select_k"),
+        task_type=state["task_type"],
+    )
 
     buffer = io.BytesIO()
     joblib.dump(result.transformer, buffer)
@@ -266,6 +299,7 @@ NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "planner": planner_node,
     "cleaning": cleaning_node,
     "eda": eda_node,
+    "feature_strategy": feature_strategy_node,
     "preprocessing": preprocessing_node,
     "modeling": modeling_node,
     "evaluation": evaluation_node,
