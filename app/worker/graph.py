@@ -38,7 +38,7 @@ from app.core.llm.usage import make_usage_recorder
 from app.ml.cleaning import clean_frame
 from app.ml.clustering import run_clustering
 from app.ml.evaluation import build_evaluation_report
-from app.ml.modeling import cross_validate_model
+from app.ml.modeling import run_leaderboard
 from app.ml.plots import render_charts
 from app.ml.preprocessing import build_preprocessor
 from app.ml.report import build_markdown_report
@@ -51,6 +51,7 @@ from app.services.artifacts import (
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     FEATURE_ARTIFACT,
+    LEADERBOARD_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
     PREPROCESSOR_ARTIFACT,
@@ -230,21 +231,26 @@ def preprocessing_node(state: PipelineState) -> dict:
 
 
 def modeling_node(state: PipelineState) -> dict:
-    """Cross-validate one model, fitting the recipe only inside each fold (spec 7.7).
+    """Cross-validate the roster and rank it, fitting only inside folds (spec 7.7).
 
-    Writes no artifact of its own: in Section 5 there is a single model, so the
-    scores are the evaluation report's story to tell. Section 7 adds
-    ``model_candidates.json`` and a leaderboard here, when there is a comparison
-    to record.
+    Section 5 trained one model and left the scores to the evaluation report.
+    There are four now, so there is a comparison worth recording: the leaderboard
+    is written here, and the winner is passed on for the evaluation report to
+    describe in full.
     """
-    return {
-        "cv_result": cross_validate_model(
-            state["cleaned"],
-            target=state["target"],
-            task_type=state["task_type"],
-            preprocessor=state["preprocessor"],
-        )
-    }
+    job_id = state["job_id"]
+    plan = state["plan"]
+    leaderboard, winner = run_leaderboard(
+        state["cleaned"],
+        target=state["target"],
+        task_type=state["task_type"],
+        preprocessor=state["preprocessor"],
+        use_smote=bool(plan and plan.use_smote),
+    )
+    with SessionLocal() as db:
+        register_json_artifact(db, job_id, LEADERBOARD_ARTIFACT, leaderboard)
+        db.commit()
+    return {"cv_result": winner, "leaderboard": leaderboard}
 
 
 def evaluation_node(state: PipelineState) -> dict:
@@ -281,6 +287,7 @@ def report_node(state: PipelineState) -> dict:
         # model, which is the part a reader cannot do without.
         eda=state.get("eda_report"),
         clustering=state.get("clustering_report"),
+        leaderboard=state.get("leaderboard"),
     )
     with SessionLocal() as db:
         register_bytes_artifact(

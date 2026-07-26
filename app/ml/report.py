@@ -25,6 +25,7 @@ from app.ml.contracts import (
     ClusteringReport,
     EdaReport,
     EvaluationReport,
+    Leaderboard,
     PlannerPlan,
     PreprocessingSpec,
 )
@@ -53,18 +54,20 @@ def build_markdown_report(
     evaluation: EvaluationReport,
     eda: EdaReport | None = None,
     clustering: ClusteringReport | None = None,
+    leaderboard: Leaderboard | None = None,
 ) -> str:
     """Assemble the job's report from its artifacts.
 
-    ``eda`` and ``clustering`` are optional so the report still builds for a run
-    whose EDA stage was skipped or failed -- it is descriptive, and a missing
-    chart should not cost the reader the model results.
+    ``eda``, ``clustering`` and ``leaderboard`` are optional so the report still
+    builds for a run whose EDA stage was skipped or failed -- it is descriptive,
+    and a missing chart should not cost the reader the model results.
     """
     sections = [
         _heading(filename, evaluation),
         _headline(evaluation),
         _methodology(evaluation),
         _metrics_table(evaluation),
+        _leaderboard_table(leaderboard),
         _folds_table(evaluation),
         _data_quality(cleaning),
         _what_the_data_looks_like(eda),
@@ -287,6 +290,42 @@ def _data_quality(cleaning: CleaningReport) -> str:
         )
     else:
         lines.append("- No missing values remained after cleaning.")
+    return "\n".join(lines)
+
+
+def _leaderboard_table(leaderboard: Leaderboard | None) -> str:
+    """Every candidate that was tried, ranked, with the spread beside the score.
+
+    The spread is in the table rather than a footnote because it is what decides
+    whether the ranking is worth acting on: a 0.02 lead between two models whose
+    folds swing 0.09 is not a lead, and a table of means alone hides that.
+    """
+    if leaderboard is None or not leaderboard.entries:
+        return ""
+
+    metric = _label(leaderboard.primary_metric)
+    lines = [
+        "## Models compared",
+        "",
+        f"| Rank | Model | {metric} | Spread across folds | Time |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for entry in leaderboard.entries:
+        if entry.error:
+            lines.append(f"| {entry.rank} | {entry.model_name} | — | — | could not be trained |")
+            continue
+        lines.append(
+            f"| {entry.rank} | {entry.model_name} | {entry.score:.3f} | "
+            f"± {entry.std:.3f} | {entry.fit_seconds:.1f}s |"
+        )
+
+    lines.append("")
+    lines.append(
+        f"All {len(leaderboard.entries)} models were scored on the same "
+        f"{leaderboard.n_folds} folds, so the ranking compares like with like."
+    )
+    if leaderboard.resampling != "none":
+        lines.append(f"Class balancing: {leaderboard.resampling}.")
     return "\n".join(lines)
 
 

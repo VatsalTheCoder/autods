@@ -33,6 +33,7 @@ from app.ml.contracts import (
     EdaReport,
     EvaluationReport,
     FeatureStrategy,
+    Leaderboard,
     PlannerPlan,
     PreprocessingSpec,
 )
@@ -90,6 +91,8 @@ class PipelineState(TypedDict, total=False):
     preprocessor: ColumnTransformer
     preprocessing_spec: PreprocessingSpec
     cv_result: CrossValidationResult
+    # Section 7. The whole roster, ranked; ``cv_result`` is the winner's folds.
+    leaderboard: Leaderboard
     evaluation: EvaluationReport
     report_markdown: str
 

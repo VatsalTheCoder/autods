@@ -231,7 +231,7 @@ class TestFailurePath:
         def boom(*_args, **_kwargs):
             raise RuntimeError("modelling exploded")
 
-        monkeypatch.setattr("app.worker.graph.cross_validate_model", boom)
+        monkeypatch.setattr("app.worker.graph.run_leaderboard", boom)
 
         run_pipeline(confirmed_job)
 
@@ -322,7 +322,14 @@ class TestVisibleViaAPI:
     def test_the_evaluation_endpoint_serves_the_metrics(self, completed_job):
         body = TestClient(app).get(f"/jobs/{completed_job}/evaluation").json()
         assert body["target_column"] == "churn"
-        assert body["model_name"] == "RandomForestClassifier"
+        # Whichever of the four candidates won -- the roster is the contract
+        # here, not any particular model beating the others on this fixture.
+        assert body["model_name"] in {
+            "RandomForest",
+            "LogisticRegression",
+            "XGBoost",
+            "LightGBM",
+        }
         assert body["primary_metric"] == "f1_macro"
         assert len(body["folds"]) == 5
 

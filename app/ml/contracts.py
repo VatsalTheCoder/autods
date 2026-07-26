@@ -63,6 +63,25 @@ class PlannerPlan(BaseModel):
         description="Whether looking for natural groupings is worthwhile here.",
     )
 
+    # ---- Section 7: the optional steps the graph branches around -------------
+    # These are the fields spec 7.3 has the Planner decide and LangGraph's
+    # conditional edges consume. Each one can turn a node off entirely, and a
+    # node that is turned off is marked SKIPPED rather than silently absent --
+    # which is the visible half of the "dynamic orchestration" claim (spec 11).
+
+    use_smote: bool = Field(
+        default=False,
+        description="Oversample the minority class inside each training fold.",
+    )
+    run_feature_selection: bool = Field(
+        default=False,
+        description="Keep only the strongest features rather than all of them.",
+    )
+    run_sampling: bool = Field(
+        default=False,
+        description="Train on a random subset because the dataset is very large.",
+    )
+
     rationale: str = Field(default="", description="One or two sentences on why.")
 
     # Whether the LLM was actually consulted. The pipeline runs identically
@@ -280,6 +299,55 @@ class EvaluationReport(BaseModel):
     def primary_score(self) -> float | None:
         summary = self.metrics.get(self.primary_metric)
         return summary.mean if summary else None
+
+
+# ---- The leaderboard (Section 7) --------------------------------------------
+
+
+class LeaderboardEntry(BaseModel):
+    """One model's cross-validated result, as it appears in the ranking."""
+
+    rank: int
+    model_name: str
+    # The metric the ranking is on -- named per row so a reader never has to
+    # infer which number the order came from.
+    primary_metric: str
+    score: float
+    # Spread across folds. It belongs next to the score because it is what says
+    # whether a lead is real: 0.81 ± 0.02 beating 0.79 ± 0.09 is a different
+    # claim from the means alone.
+    std: float
+    metrics: dict[str, MetricSummary] = Field(default_factory=dict)
+    fit_seconds: float = 0.0
+    # Set when a candidate could not be trained at all. A named failure is more
+    # useful than a model quietly missing from the table.
+    error: str = ""
+
+
+class Leaderboard(BaseModel):
+    """``leaderboard.json`` -- every candidate, ranked, on identical folds.
+
+    The comparison is only meaningful because every model in it saw exactly the
+    same splits, built from the same seed, behind the same unfitted recipe. That
+    is why the roster is cross-validated in one pass here rather than each model
+    being run separately and the numbers collected afterwards.
+    """
+
+    task_type: TaskType
+    target_column: str
+    primary_metric: str
+    n_folds: int
+    cv_strategy: str
+    entries: list[LeaderboardEntry] = Field(default_factory=list)
+
+    # Whether resampling was part of every fold's fit, and why. Recorded on the
+    # leaderboard rather than only in the plan because it changes what the scores
+    # mean, and a reader comparing two runs needs to see it next to them.
+    resampling: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+    def winner(self) -> LeaderboardEntry | None:
+        return next((e for e in self.entries if not e.error), None)
 
 
 # ---- EDA (Section 6) --------------------------------------------------------

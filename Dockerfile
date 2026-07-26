@@ -13,9 +13,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /code
 
-# curl is used by the compose healthchecks.
+# curl is used by the compose healthchecks. libgomp1 is LightGBM's OpenMP
+# runtime (Section 7): its wheel links against it but does not bundle it, so
+# without this the import fails at container start with a bare
+# "libgomp.so.1: cannot open shared object file".
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencies are installed before the source is copied. Docker caches layers,

@@ -55,6 +55,9 @@ CLUSTERING_ARTIFACT = "clustering_report.json"
 FEATURE_ARTIFACT = "feature_report.json"
 PREPROCESSING_ARTIFACT = "preprocessing_report.json"
 PREPROCESSOR_ARTIFACT = "preprocessing_pipeline.pkl"
+# Section 7. The ranking of the whole roster; ``evaluation_report.json`` stays
+# the detailed account of the winner alone (spec 7.8).
+LEADERBOARD_ARTIFACT = "leaderboard.json"
 EVALUATION_ARTIFACT = "evaluation_report.json"
 REPORT_ARTIFACT = "report.md"
 
