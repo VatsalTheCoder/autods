@@ -110,12 +110,41 @@ class TestSuccessfulRun:
             job = db.get(Job, completed_job)
             assert job.status is JobStatus.COMPLETED, job.error_message
 
-    def test_every_node_completes_in_order(self, completed_job):
+    def test_every_node_reaches_a_terminal_state_in_order(self, completed_job):
+        """Every node ends either completed or deliberately skipped -- none pending.
+
+        The optional Section 7 steps are off in this fixture (a 60-row balanced
+        dataset needs neither sampling nor feature selection), so the run
+        legitimately routes past them. What must hold for *all* of them is that
+        the roadmap is the full node list and nothing was left unreached.
+        """
         with SessionLocal() as db:
             runs = db.get(Job, completed_job).agent_runs
             assert [r.name for r in runs] == PIPELINE_NODES
-            assert all(r.status is AgentRunStatus.COMPLETED for r in runs)
-            assert all(r.started_at is not None and r.finished_at is not None for r in runs)
+            assert all(r.status in (AgentRunStatus.COMPLETED, AgentRunStatus.SKIPPED) for r in runs)
+            assert all(r.finished_at is not None for r in runs)
+
+    def test_the_optional_steps_are_visibly_skipped_not_missing(self, completed_job):
+        """Section 7's dynamic-orchestration claim, checked on a real run.
+
+        A node the graph routed past has to be distinguishable from one the run
+        never got to -- otherwise "the pipeline adapted to this dataset" is not
+        an observable claim. It keeps its row, gets SKIPPED, and says why.
+        """
+        with SessionLocal() as db:
+            runs = {r.name: r for r in db.get(Job, completed_job).agent_runs}
+
+        for name in ("sampling", "feature_selection"):
+            assert runs[name].status is AgentRunStatus.SKIPPED, name
+            assert runs[name].error_message, f"{name} was skipped without saying why"
+
+    def test_the_required_steps_all_completed(self, completed_job):
+        with SessionLocal() as db:
+            runs = {r.name: r for r in db.get(Job, completed_job).agent_runs}
+
+        for name in ("planner", "cleaning", "eda", "preprocessing", "modeling", "report"):
+            assert runs[name].status is AgentRunStatus.COMPLETED, name
+            assert runs[name].started_at is not None
 
     def test_rerun_resets_the_roadmap(self, completed_job):
         """A second run must not duplicate rows or leave stale statuses."""
@@ -317,7 +346,10 @@ class TestVisibleViaAPI:
         body = TestClient(app).get(f"/jobs/{completed_job}").json()
         assert body["status"] == "completed"
         assert [r["name"] for r in body["agent_runs"]] == PIPELINE_NODES
-        assert all(r["status"] == "completed" for r in body["agent_runs"])
+        # "skipped" reaches the browser as its own status, which is what lets the
+        # Progress page draw it differently from a step still waiting to run.
+        assert all(r["status"] in ("completed", "skipped") for r in body["agent_runs"])
+        assert {r["status"] for r in body["agent_runs"]} == {"completed", "skipped"}
 
     def test_the_evaluation_endpoint_serves_the_metrics(self, completed_job):
         body = TestClient(app).get(f"/jobs/{completed_job}/evaluation").json()

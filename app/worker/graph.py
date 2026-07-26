@@ -32,16 +32,19 @@ from app.agents.feature_strategy import AGENT_NAME as FEATURE_STRATEGY_AGENT
 from app.agents.feature_strategy import make_strategy
 from app.agents.planner import AGENT_NAME as PLANNER_AGENT
 from app.agents.planner import make_plan
+from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.llm.factory import get_optional_llm
 from app.core.llm.usage import make_usage_recorder
 from app.ml.cleaning import clean_frame
 from app.ml.clustering import run_clustering
+from app.ml.contracts import PlannerPlan
 from app.ml.evaluation import build_evaluation_report
 from app.ml.modeling import run_leaderboard
 from app.ml.plots import render_charts
 from app.ml.preprocessing import build_preprocessor
 from app.ml.report import build_markdown_report
+from app.ml.sampling import sample_frame
 from app.ml.statistics import compute_statistics
 from app.models.artifact import ArtifactKind
 from app.services.artifacts import (
@@ -59,7 +62,7 @@ from app.services.artifacts import (
     register_bytes_artifact,
     register_json_artifact,
 )
-from app.worker.progress import fail_node, finish_node, start_node
+from app.worker.progress import fail_node, finish_node, skip_node, start_node
 from app.worker.state import PIPELINE_NODES, PipelineState
 
 logger = logging.getLogger(__name__)
@@ -166,6 +169,61 @@ def eda_node(state: PipelineState) -> dict:
         )
 
     return {"eda_report": eda, "clustering_report": clustering.report}
+
+
+def sampling_node(state: PipelineState) -> dict:
+    """Train on a random subset, because the dataset is big enough to warrant it.
+
+    Conditional -- the planner decides whether this runs at all, and on most
+    datasets it does not. Placed after EDA on purpose: the charts and statistics
+    describe every row that was uploaded, and only the modelling is done on a
+    sample, so nothing in the descriptive half is quietly computed from a subset.
+
+    Sampling is one of the few things here that can safely happen outside a fold.
+    It removes rows without learning anything from them -- no statistic crosses
+    from the discarded rows into the kept ones -- so the fold discipline is
+    untouched. Stratified for classification so the sample keeps the target's
+    class proportions; a random subset of a 99:1 dataset can easily contain no
+    minority rows at all.
+    """
+    frame = state["cleaned"]
+    limit = get_settings().max_modelling_rows
+    if len(frame) <= limit:
+        return {
+            "sampling_note": (
+                f"Sampling was planned but the dataset has {len(frame):,} rows, "
+                f"under the {limit:,}-row threshold, so every row was used."
+            )
+        }
+
+    sampled = sample_frame(frame, target=state["target"], task_type=state["task_type"], limit=limit)
+    note = (
+        f"Trained on a random sample of {len(sampled):,} rows drawn from "
+        f"{len(frame):,}, to keep training time reasonable. Charts and statistics "
+        "above describe the full dataset."
+    )
+    logger.info("[job %s] sampled %d rows from %d", state["job_id"], len(sampled), len(frame))
+    return {"cleaned": sampled, "sampling_note": note}
+
+
+def feature_selection_node(state: PipelineState) -> dict:
+    """Decide how many features to keep -- the recipe does the keeping (spec 7.6).
+
+    Conditional, and deliberately thin: all it does is put a number on the shared
+    state. The selector itself becomes a *step inside the unfitted pipeline*
+    (``preprocessing.py``), which is what makes it fitted per fold like every
+    other fitted thing. Ranking features against the target over the whole
+    dataset would use the held-out rows' targets to decide what the model is
+    allowed to see -- a leak that looks like good feature engineering.
+
+    So this node chooses a policy and preprocessing enacts it. The folds may
+    legitimately end up selecting different columns from one another, which is
+    what an honest per-fold selection looks like.
+    """
+    n_features = max(1, len([c for c in state["cleaned"].columns if c != state["target"]]))
+    select_k = min(get_settings().feature_selection_k, n_features)
+    logger.info("[job %s] feature selection will keep the top %d", state["job_id"], select_k)
+    return {"select_k": select_k}
 
 
 def feature_strategy_node(state: PipelineState) -> dict:
@@ -288,6 +346,7 @@ def report_node(state: PipelineState) -> dict:
         eda=state.get("eda_report"),
         clustering=state.get("clustering_report"),
         leaderboard=state.get("leaderboard"),
+        sampling_note=state.get("sampling_note", ""),
     )
     with SessionLocal() as db:
         register_bytes_artifact(
@@ -306,11 +365,33 @@ NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "planner": planner_node,
     "cleaning": cleaning_node,
     "eda": eda_node,
+    "sampling": sampling_node,
     "feature_strategy": feature_strategy_node,
+    "feature_selection": feature_selection_node,
     "preprocessing": preprocessing_node,
     "modeling": modeling_node,
     "evaluation": evaluation_node,
     "report": report_node,
+}
+
+
+# The optional steps, and the plan flag that decides each (spec 7.3, 11). A node
+# named here gets a conditional edge instead of a plain one: the graph either
+# enters it or routes past it to the next node, and a node routed past is marked
+# SKIPPED rather than left looking unreached.
+#
+# Everything else in the pipeline is unconditional on purpose. A step that can be
+# skipped has to be one the run is genuinely correct without -- cleaning and
+# preprocessing are not, and making them optional would only mean more ways to
+# produce a wrong answer.
+OPTIONAL_NODES: dict[str, Callable[[PlannerPlan | None], bool]] = {
+    "sampling": lambda plan: bool(plan and plan.run_sampling),
+    "feature_selection": lambda plan: bool(plan and plan.run_feature_selection),
+}
+
+_SKIP_REASONS: dict[str, str] = {
+    "sampling": "The planner judged the dataset small enough to use every row.",
+    "feature_selection": "The planner kept all features rather than selecting a subset.",
 }
 
 
@@ -342,11 +423,40 @@ def _tracked(name: str, work: Callable[[PipelineState], dict]):
     return node
 
 
-def build_pipeline_graph():
-    """Compile the linear pipeline: START → planner → ... → report → END.
+def _router(optional: str, following: str):
+    """Route into an optional node, or past it -- marking it SKIPPED on the way.
 
-    Still linear in Section 5. The spec's conditional edges (7.3, 11) arrive with
-    Section 7, when the planner has optional steps worth branching around.
+    The marking happens here, at the point the decision is actually made, which
+    is the only place that knows a node was passed over rather than not yet
+    reached. LangGraph evaluates a router once per traversal, so the row is
+    written exactly once.
+    """
+
+    def route(state: PipelineState) -> str:
+        if OPTIONAL_NODES[optional](state.get("plan")):
+            return optional
+        reason = _SKIP_REASONS.get(optional, "The planner did not ask for this step.")
+        skip_node(state["job_id"], optional, reason)
+        logger.info("[job %s] node %s skipped: %s", state["job_id"], optional, reason)
+        return following
+
+    return route
+
+
+def build_pipeline_graph():
+    """Compile the pipeline: START → planner → ... → report → END.
+
+    Linear until Section 7, which adds the spec's conditional edges (7.3, 11).
+    Two nodes are now optional, and the graph is built by walking the node list
+    and giving each optional node a conditional edge *from its predecessor* --
+    which either enters it or jumps to its successor.
+
+    Building it from ``PIPELINE_NODES`` rather than wiring edges by hand means
+    the roadmap the UI polls and the graph the worker executes cannot drift
+    apart: they are the same list. It does assume no two optional nodes are
+    adjacent, since a chain of skips would need to route past both -- asserted
+    below rather than left as a comment, because the failure would be a
+    silently-unreachable node.
     """
     graph = StateGraph(PipelineState)
 
@@ -354,8 +464,22 @@ def build_pipeline_graph():
         graph.add_node(name, _tracked(name, NODE_FUNCTIONS[name]))
 
     graph.add_edge(START, PIPELINE_NODES[0])
-    for earlier, later in zip(PIPELINE_NODES, PIPELINE_NODES[1:], strict=False):
-        graph.add_edge(earlier, later)
+
+    for index, (earlier, later) in enumerate(zip(PIPELINE_NODES, PIPELINE_NODES[1:], strict=False)):
+        if later not in OPTIONAL_NODES:
+            graph.add_edge(earlier, later)
+            continue
+
+        following = PIPELINE_NODES[index + 2]
+        if following in OPTIONAL_NODES:
+            raise RuntimeError(
+                f"Optional nodes {later!r} and {following!r} are adjacent; the "
+                "router can only skip one at a time."
+            )
+        graph.add_conditional_edges(
+            earlier, _router(later, following), {later: later, following: following}
+        )
+
     graph.add_edge(PIPELINE_NODES[-1], END)
 
     return graph.compile()

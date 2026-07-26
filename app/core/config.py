@@ -105,6 +105,19 @@ class Settings(BaseSettings):
     # reproducible, which is the first thing an examiner will try.
     random_seed: int = 42
 
+    # ---- The optional steps the planner switches on (Section 7) ----------
+    # Above this many rows, a planned sampling step actually subsamples; at or
+    # below it, every row is used. Four models times five folds is twenty fits,
+    # so the ceiling is about keeping a demo responsive rather than about
+    # statistics -- 20k rows is already far more than these models need to
+    # separate signal from noise on a tabular dataset.
+    max_modelling_rows: int = 20_000
+
+    # How many features a planned selection step keeps. Clamped to the number
+    # actually available, and if it still exceeds the encoded width scikit-learn
+    # keeps everything rather than failing.
+    feature_selection_k: int = 20
+
     # Cleaning drops a column whose values are missing more often than this.
     # A column that is 90% blank carries almost no signal but forces every row
     # through imputation, so it is removed structurally rather than filled in.

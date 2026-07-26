@@ -61,6 +61,23 @@ def fail_node(job_id: int, name: str, error: str) -> None:
     _update_node(job_id, name, status=AgentRunStatus.FAILED, finished=True, error=error)
 
 
+def skip_node(job_id: int, name: str, reason: str) -> None:
+    """Mark a node SKIPPED, with why, when the plan routed around it (Section 7).
+
+    A skipped step keeps its row and gets its own status rather than being left
+    PENDING or removed from the roadmap. That distinction is the visible half of
+    the spec's dynamic-orchestration claim (11): "this run did not need feature
+    selection" and "this run has not reached feature selection yet" look
+    identical on a progress bar unless the difference is recorded, and only one
+    of them means the graph made a decision.
+
+    The reason goes in ``error_message`` -- the column already exists and is
+    already rendered beside the node. It is a note, not a failure; the status
+    beside it is what says which.
+    """
+    _update_node(job_id, name, status=AgentRunStatus.SKIPPED, finished=True, error=reason)
+
+
 def _update_node(
     job_id: int,
     name: str,

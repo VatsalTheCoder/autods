@@ -55,6 +55,7 @@ def build_markdown_report(
     eda: EdaReport | None = None,
     clustering: ClusteringReport | None = None,
     leaderboard: Leaderboard | None = None,
+    sampling_note: str = "",
 ) -> str:
     """Assemble the job's report from its artifacts.
 
@@ -72,7 +73,7 @@ def build_markdown_report(
         _data_quality(cleaning),
         _what_the_data_looks_like(eda),
         _groups(clustering),
-        _preparation(plan, preprocessing),
+        _preparation(plan, preprocessing, sampling_note),
         _caveats(evaluation),
         _limitations(),
     ]
@@ -329,7 +330,9 @@ def _leaderboard_table(leaderboard: Leaderboard | None) -> str:
     return "\n".join(lines)
 
 
-def _preparation(plan: PlannerPlan, preprocessing: PreprocessingSpec) -> str:
+def _preparation(
+    plan: PlannerPlan, preprocessing: PreprocessingSpec, sampling_note: str = ""
+) -> str:
     lines = ["## How the data was prepared", ""]
 
     if preprocessing.numeric_columns:
@@ -346,9 +349,51 @@ def _preparation(plan: PlannerPlan, preprocessing: PreprocessingSpec) -> str:
         lines.append("- Left out of the model for now:")
         lines.extend(f"  - `{c.name}` — {c.reason}" for c in preprocessing.unhandled_columns)
 
+    if preprocessing.ordinal_columns:
+        lines.append(
+            f"- **{_count(len(preprocessing.ordinal_columns), 'ordered column')}**: "
+            "encoded in rank order rather than as unrelated labels"
+        )
+    if preprocessing.datetime_columns:
+        lines.append(
+            f"- **{_count(len(preprocessing.datetime_columns), 'date column')}**: "
+            "split into calendar features (year, month, day, weekday, hour)"
+        )
+    if preprocessing.text_columns:
+        lines.append(
+            f"- **{_count(len(preprocessing.text_columns), 'high-variety column')}**: "
+            "replaced with how often each value occurs, learned per fold"
+        )
+    if preprocessing.feature_selection:
+        lines.append(f"- **Feature selection**: {preprocessing.feature_selection}")
+
+    # What the pipeline decided *not* to do. A run that silently does less is an
+    # optimisation; one that says which steps it routed around is a decision the
+    # reader can disagree with (spec 11).
+    turned_off = [
+        label
+        for label, on in (
+            ("oversampling the rare outcome", plan.use_smote),
+            ("selecting a subset of features", plan.run_feature_selection),
+            ("training on a sample of the rows", plan.run_sampling),
+        )
+        if not on
+    ]
+    if turned_off:
+        lines.append("")
+        lines.append(f"Steps not used on this dataset: {', '.join(turned_off)}.")
+    if sampling_note:
+        lines.append("")
+        lines.append(sampling_note)
+
     source = "chosen by the planning model" if plan.source == "llm" else "the built-in defaults"
     lines.append("")
     lines.append(f"Preparation steps came from {source}.")
+    if preprocessing.strategy_source == "llm":
+        lines.append(
+            "Per-column preparation was chosen by the feature strategy model and "
+            "checked against the real columns before being built."
+        )
     if plan.rationale:
         lines.append(f"> {plan.rationale}")
     return "\n".join(lines)

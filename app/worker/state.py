@@ -85,6 +85,8 @@ class PipelineState(TypedDict, total=False):
     # conditional branch, read by the recipe builder, which puts the selector
     # *inside* the pipeline so it is fitted per fold.
     select_k: int | None
+    # What the sampling step did, for the report. Empty when it did not run.
+    sampling_note: str
 
     # The unfitted recipe. It travels as an object precisely so that the next
     # node can clone it per fold rather than reach for something already fitted.
@@ -109,11 +111,17 @@ PIPELINE_NODES: list[str] = [
     # nothing downstream depends on its output, which is what lets it fail
     # without taking the model with it.
     "eda",
+    # Section 7, optional (see graph.OPTIONAL_NODES). After EDA so the charts
+    # always describe every uploaded row, and only the modelling sees a subset.
+    "sampling",
     # Section 7. Separate from ``preprocessing`` on purpose: this node decides,
     # that one builds. Two nodes means the Progress page shows the LLM's choice
     # landing as its own step, and means a strategy artifact exists to read even
     # if building the recipe from it later fails.
     "feature_strategy",
+    # Section 7, optional. Decides *how many* features to keep; the selector
+    # itself is a step in the recipe below, so it is fitted per fold.
+    "feature_selection",
     "preprocessing",
     "modeling",
     "evaluation",
