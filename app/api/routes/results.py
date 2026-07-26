@@ -4,33 +4,49 @@ These serve artifact *content* through the API rather than handing the browser a
 presigned URL. That is a deliberate choice, not an oversight: locally, presigned
 URLs are signed against ``http://minio:9000``, a hostname that only resolves
 inside the Docker network, so a browser cannot follow one (the limitation
-documented on ``GET /jobs/{id}/artifacts/{name}/link``). Both payloads here are
-small -- a JSON report and a few kilobytes of Markdown -- so proxying them costs
-nothing and the Results page works identically on a laptop and on AWS.
+documented on ``GET /jobs/{id}/artifacts/{name}/link``).
 
-Plots, which are large and numerous, are the case where presigned URLs genuinely
-pay off; Section 6 introduces them and has to solve the endpoint problem properly.
+Section 5 proxied only JSON and Markdown and left the general case open. Section 6
+closes it: ``GET /jobs/{id}/artifacts/{name}/content`` streams *any* artifact with
+its recorded content type, which is what makes the EDA charts displayable in a
+browser. The alternative -- signing against a browser-reachable endpoint -- would
+mean the local and deployed paths differ in exactly the place that is hardest to
+test, and would leave two mechanisms for "show the user a file" where one will do.
+
+The ``/link`` endpoint stays for the case presigned URLs are actually good at:
+letting a client pull a large object straight from S3 without the API in the
+middle. Nothing in the UI needs that yet.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ReportResponse
 from app.core.db import get_db
 from app.core.storage import StorageError
-from app.ml.contracts import CleaningReport, EvaluationReport
+from app.ml.contracts import CleaningReport, ClusteringReport, EdaReport, EvaluationReport
 from app.models.job import Job
 from app.services.artifacts import (
     CLEANING_ARTIFACT,
+    CLUSTERING_ARTIFACT,
+    EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     REPORT_ARTIFACT,
     load_artifact_bytes,
+    load_artifact_content,
     load_json_artifact,
 )
+
+# Artifacts are immutable for the life of a job unless it is re-run, and the
+# Results page re-executes its whole script on every interaction (Streamlit's
+# model), which would otherwise re-fetch every chart on each click. A short
+# private cache keeps that from being visible without risking a stale image
+# outliving a re-run by more than a few minutes.
+_CACHE_CONTROL = "private, max-age=300"
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +102,29 @@ def get_cleaning(job_id: int, db: Session = Depends(get_db)) -> CleaningReport:
 
 
 @router.get(
+    "/jobs/{job_id}/eda",
+    response_model=EdaReport,
+    summary="Descriptive statistics and the list of charts",
+)
+def get_eda(job_id: int, db: Session = Depends(get_db)) -> EdaReport:
+    """The statistics, plus the artifact names of the charts.
+
+    The chart *bytes* come from the content endpoint below; this returns the
+    index, so the UI knows what exists before fetching any of it.
+    """
+    return EdaReport.model_validate(_load_or_404(db, job_id, EDA_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/clustering",
+    response_model=ClusteringReport,
+    summary="The groups found in the data, and how well separated they are",
+)
+def get_clustering(job_id: int, db: Session = Depends(get_db)) -> ClusteringReport:
+    return ClusteringReport.model_validate(_load_or_404(db, job_id, CLUSTERING_ARTIFACT))
+
+
+@router.get(
     "/jobs/{job_id}/report",
     response_model=ReportResponse,
     summary="The Markdown report for a job",
@@ -105,3 +144,47 @@ def get_report(job_id: int, db: Session = Depends(get_db)) -> ReportResponse:
             detail=f"Job {job_id} has not produced a report yet.",
         )
     return ReportResponse(job_id=job_id, markdown=data.decode("utf-8"))
+
+
+@router.get(
+    "/jobs/{job_id}/artifacts/{name}/content",
+    summary="Stream an artifact's bytes, with its recorded content type",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}, "text/csv": {}, "application/json": {}}}},
+)
+def get_artifact_content(job_id: int, name: str, db: Session = Depends(get_db)) -> Response:
+    """Serve any artifact directly, so a browser can display it.
+
+    This is what makes the EDA charts viewable (Section 6). A presigned URL
+    cannot be followed from a browser against local MinIO, so the bytes come
+    through the API instead -- identical behaviour on a laptop and on AWS, which
+    matters more here than saving the API a few hundred kilobytes.
+
+    The content type is whatever the producing agent recorded, so a PNG is served
+    as a PNG and a CSV as a CSV without this endpoint knowing anything about
+    either.
+    """
+    _require_job(db, job_id)
+    try:
+        found = load_artifact_content(db, job_id, name)
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage is unavailable."
+        ) from exc
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Job {job_id} has no artifact named {name!r}.",
+        )
+
+    data, content_type = found
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={
+            "Cache-Control": _CACHE_CONTROL,
+            # Named so a browser "save as" produces the artifact's real name
+            # rather than the URL's last path segment ("content").
+            "Content-Disposition": f'inline; filename="{name}"',
+        },
+    )

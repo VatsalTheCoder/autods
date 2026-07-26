@@ -242,6 +242,107 @@ class TestRecipeLeavesPreprocessingUnfitted:
             check_is_fitted(restored)
 
 
+class TestClusterLabelsNeverBecomeFeatures:
+    """Section 6's guardrail, and it is the same failure as the rest of this file.
+
+    Cluster labels are computed over *every* row, including the rows that later
+    land in a test fold. Adding them to the dataset as a feature would hand the
+    model a summary of the held-out data -- leakage by a different route, and one
+    that looks like a feature-engineering win rather than a mistake (spec 9).
+
+    So clustering hands its labels back as a bare array rather than a column, and
+    these tests pin down that using them as a feature stays a deliberate act
+    instead of an accident waiting to happen.
+    """
+
+    def test_clustering_does_not_touch_the_dataframe(self, frame):
+        from app.ml.clustering import run_clustering
+
+        before = frame.copy()
+        run_clustering(frame, target="churn")
+
+        pd.testing.assert_frame_equal(frame, before)
+
+    def test_labels_come_back_outside_the_data(self, frame):
+        """An array, not a column -- the shape of the API is the safeguard."""
+        from app.ml.clustering import run_clustering
+
+        result = run_clustering(frame, target="churn")
+
+        assert result.labels is None or isinstance(result.labels, np.ndarray)
+        assert "cluster" not in frame.columns
+
+    def test_no_cluster_column_reaches_the_preprocessor(self, frame):
+        """The end of the chain: whatever EDA did, the model's features are clean."""
+        from app.ml.clustering import run_clustering
+
+        run_clustering(frame, target="churn")
+        spec = build_preprocessor(frame, target="churn").spec
+
+        routed = spec.numeric_columns + spec.categorical_columns
+        assert not [name for name in routed if "cluster" in name.lower()]
+
+    def test_the_eda_node_rejects_a_frame_it_modified(self, monkeypatch):
+        """The check is enforced in code, not left to convention.
+
+        If a future change ever appended cluster labels to the frame, the EDA node
+        raises rather than quietly passing a contaminated dataset to the model.
+        This drives that path by making clustering misbehave on purpose.
+        """
+        import app.worker.graph as graph
+        from app.ml.clustering import ClusteringResult
+        from app.ml.contracts import ClusteringReport
+
+        state_frame = pd.DataFrame({"x1": np.arange(20.0), "churn": ["yes", "no"] * 10})
+
+        def sabotage(frame, **_kwargs):
+            # Exactly the mistake the guardrail exists to catch.
+            frame["cluster"] = 0
+            return ClusteringResult(
+                report=ClusteringReport(method="kmeans", k=2, silhouette=0.5), labels=None
+            )
+
+        monkeypatch.setattr(graph, "run_clustering", sabotage)
+        monkeypatch.setattr(graph, "compute_statistics", lambda *a, **k: _stub_eda())
+        monkeypatch.setattr(graph, "render_charts", lambda *a, **k: [])
+        monkeypatch.setattr(graph, "describe_clusters", lambda profiles, **k: profiles)
+        monkeypatch.setattr(graph, "register_json_artifact", lambda *a, **k: None)
+        monkeypatch.setattr(graph, "register_bytes_artifact", lambda *a, **k: None)
+        monkeypatch.setattr(graph, "make_usage_recorder", lambda *a, **k: lambda _r: None)
+        monkeypatch.setattr(graph, "get_optional_llm", lambda: None)
+        monkeypatch.setattr(graph, "SessionLocal", _NullSession)
+
+        with pytest.raises(RuntimeError, match="never become model features"):
+            graph.eda_node(
+                {
+                    "job_id": 1,
+                    "cleaned": state_frame,
+                    "target": "churn",
+                    "task_type": "classification",
+                    "plan": None,
+                }
+            )
+
+
+def _stub_eda():
+    from app.ml.contracts import EdaReport
+
+    return EdaReport(n_rows=20, n_columns=2, target_column="churn")
+
+
+class _NullSession:
+    """A stand-in for SessionLocal so the node's persistence is a no-op here."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def commit(self):
+        pass
+
+
 class TestFoldSafety:
     """Per-fold fitting must survive the data it will actually meet."""
 

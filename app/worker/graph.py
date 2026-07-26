@@ -26,20 +26,27 @@ from collections.abc import Callable
 import joblib
 from langgraph.graph import END, START, StateGraph
 
+from app.agents.cluster_profiles import AGENT_NAME as CLUSTER_PROFILE_AGENT
+from app.agents.cluster_profiles import describe_clusters
 from app.agents.planner import AGENT_NAME as PLANNER_AGENT
 from app.agents.planner import make_plan
 from app.core.db import SessionLocal
 from app.core.llm.factory import get_optional_llm
 from app.core.llm.usage import make_usage_recorder
 from app.ml.cleaning import clean_frame
+from app.ml.clustering import run_clustering
 from app.ml.evaluation import build_evaluation_report
 from app.ml.modeling import cross_validate_model
+from app.ml.plots import render_charts
 from app.ml.preprocessing import build_preprocessor
 from app.ml.report import build_markdown_report
+from app.ml.statistics import compute_statistics
 from app.models.artifact import ArtifactKind
 from app.services.artifacts import (
     CLEANED_DATASET_ARTIFACT,
     CLEANING_ARTIFACT,
+    CLUSTERING_ARTIFACT,
+    EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
@@ -101,6 +108,60 @@ def cleaning_node(state: PipelineState) -> dict:
         db.commit()
 
     return {"cleaned": result.frame, "cleaning_report": result.report}
+
+
+def eda_node(state: PipelineState) -> dict:
+    """Describe the data: statistics, charts, and natural groupings (spec 7.5, 9).
+
+    Purely descriptive. Nothing downstream reads its output, which is deliberate
+    -- it means a dataset that defeats the charts or the clustering still gets
+    modelled, and it is why this node can be this forgiving.
+
+    **The guardrail is enforced here, not just documented.** Cluster labels are
+    computed over every row including the ones that later land in a test fold, so
+    using them as a feature would leak (spec 9). The labels never go on the shared
+    state, and this node asserts that the frame it returns is column-for-column
+    the one it received -- a check that costs nothing and would catch the mistake
+    the moment somebody made it.
+    """
+    job_id = state["job_id"]
+    frame = state["cleaned"]
+    columns_before = list(frame.columns)
+
+    eda = compute_statistics(frame, target=state["target"], task_type=state["task_type"])
+    charts = render_charts(frame, target=state["target"], task_type=state["task_type"])
+
+    clustering = run_clustering(frame, target=state["target"], plan=state["plan"])
+    if clustering.scatter is not None:
+        charts = [*charts, clustering.scatter]
+
+    with SessionLocal() as db:
+        clustering.report.profiles = describe_clusters(
+            clustering.report.profiles,
+            client=get_optional_llm(),
+            on_usage=make_usage_recorder(db, job_id, CLUSTER_PROFILE_AGENT),
+        )
+        for chart in charts:
+            register_bytes_artifact(
+                db,
+                job_id,
+                chart.name,
+                chart.png,
+                content_type="image/png",
+                kind=ArtifactKind.PLOT,
+            )
+        eda.plots = [chart.name for chart in charts]
+        register_json_artifact(db, job_id, EDA_ARTIFACT, eda)
+        register_json_artifact(db, job_id, CLUSTERING_ARTIFACT, clustering.report)
+        db.commit()
+
+    if list(frame.columns) != columns_before:
+        raise RuntimeError(
+            "EDA modified the dataset's columns. Cluster labels and other "
+            "descriptive output must never become model features (spec 9)."
+        )
+
+    return {"eda_report": eda, "clustering_report": clustering.report}
 
 
 def preprocessing_node(state: PipelineState) -> dict:
@@ -183,6 +244,10 @@ def report_node(state: PipelineState) -> dict:
         cleaning=state["cleaning_report"],
         preprocessing=state["preprocessing_spec"],
         evaluation=state["evaluation"],
+        # Optional: a run whose EDA stage failed still gets a report about the
+        # model, which is the part a reader cannot do without.
+        eda=state.get("eda_report"),
+        clustering=state.get("clustering_report"),
     )
     with SessionLocal() as db:
         register_bytes_artifact(
@@ -200,6 +265,7 @@ def report_node(state: PipelineState) -> dict:
 NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "planner": planner_node,
     "cleaning": cleaning_node,
+    "eda": eda_node,
     "preprocessing": preprocessing_node,
     "modeling": modeling_node,
     "evaluation": evaluation_node,

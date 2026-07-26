@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from app.ml.contracts import (
     CleaningReport,
+    ClusteringReport,
+    EdaReport,
     EvaluationReport,
     PlannerPlan,
     PreprocessingSpec,
@@ -49,8 +51,15 @@ def build_markdown_report(
     cleaning: CleaningReport,
     preprocessing: PreprocessingSpec,
     evaluation: EvaluationReport,
+    eda: EdaReport | None = None,
+    clustering: ClusteringReport | None = None,
 ) -> str:
-    """Assemble the job's report from its artifacts."""
+    """Assemble the job's report from its artifacts.
+
+    ``eda`` and ``clustering`` are optional so the report still builds for a run
+    whose EDA stage was skipped or failed -- it is descriptive, and a missing
+    chart should not cost the reader the model results.
+    """
     sections = [
         _heading(filename, evaluation),
         _headline(evaluation),
@@ -58,11 +67,89 @@ def build_markdown_report(
         _metrics_table(evaluation),
         _folds_table(evaluation),
         _data_quality(cleaning),
+        _what_the_data_looks_like(eda),
+        _groups(clustering),
         _preparation(plan, preprocessing),
         _caveats(evaluation),
         _limitations(),
     ]
     return "\n\n".join(section.strip() for section in sections if section.strip()) + "\n"
+
+
+def _what_the_data_looks_like(eda: EdaReport | None) -> str:
+    """The descriptive findings a reader wants before trusting a score."""
+    if eda is None:
+        return ""
+    lines = ["## What the data looks like", ""]
+
+    if eda.class_balance:
+        balance = eda.class_balance
+        counts = ", ".join(f"`{k}` ({v:,})" for k, v in balance.counts.items())
+        lines.append(f"- Target classes: {counts}")
+        if balance.imbalanced:
+            lines.append(
+                f"- The classes are imbalanced ({balance.imbalance_ratio:.1f} to 1). "
+                "Accuracy flatters a model on skewed data, which is why the "
+                "headline metric above is macro F1 rather than accuracy."
+            )
+
+    if eda.top_correlations:
+        lines.append("- Numeric columns that move together most strongly:")
+        lines.extend(
+            f"  - `{pair.left}` and `{pair.right}`: {pair.correlation:+.2f}"
+            for pair in eda.top_correlations[:5]
+        )
+
+    outliers = {
+        column.name: column.numeric.outlier_count
+        for column in eda.columns
+        if column.numeric and column.numeric.outlier_count
+    }
+    if outliers:
+        listed = ", ".join(f"`{name}` ({count:,})" for name, count in sorted(outliers.items()))
+        lines.append(
+            f"- Unusually distant values were counted in {listed}. They were left "
+            "in the data: an outlier is often the most interesting record in a "
+            "dataset, so removing one is a decision to make deliberately."
+        )
+
+    if eda.plots:
+        lines.append(f"- {_count(len(eda.plots), 'chart')} were produced; see the Results page.")
+
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
+def _groups(clustering: ClusteringReport | None) -> str:
+    """The clustering findings, with the guardrail stated where a reader sees it."""
+    if clustering is None or clustering.k == 0:
+        return ""
+
+    lines = [
+        "## Natural groups in the data",
+        "",
+        f"Using {clustering.method}, the rows fall into "
+        f"{_count(clustering.k, 'group')} (silhouette {clustering.silhouette:.2f}, "
+        "where 1.0 would be perfectly separated and 0 no better than arbitrary).",
+        "",
+    ]
+
+    for profile in clustering.profiles:
+        headline = profile.description or "No notable differences from the dataset average."
+        lines.append(
+            f"- **Group {profile.cluster}** — {profile.size:,} rows "
+            f"({profile.share:.0%}). {headline}"
+        )
+        for name, description in profile.distinguishing_features.items():
+            lines.append(f"  - `{name}`: {description}")
+
+    lines.append("")
+    lines.append(
+        "> These groups describe the data; they were **not** given to the model as "
+        "an input. They are computed using every row, including the rows held out "
+        "for testing, so feeding them to the model would inflate its scores the "
+        "same way preparing the data up front would."
+    )
+    return "\n".join(lines)
 
 
 def _heading(filename: str, evaluation: EvaluationReport) -> str:

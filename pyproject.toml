@@ -34,6 +34,14 @@ dependencies = [
     # that section inserts a step rather than rewriting how every model is
     # trained, and there is never a window where resampling sits outside the fold.
     "imbalanced-learn>=0.12",
+    # Section 6: EDA charts. Matplotlib only -- no seaborn. The charts here are a
+    # fixed, small set rendered headlessly to PNG, so seaborn would add a
+    # dependency and a second styling system to earn nothing.
+    "matplotlib>=3.9",
+    # K-Prototypes for mixed numeric/categorical clustering (spec 9). scikit-learn
+    # has no equivalent, and the alternative -- one-hot encoding then K-Means --
+    # invents Euclidean distances between categories that do not have any.
+    "kmodes>=0.12",
 ]
 
 [project.optional-dependencies]
