@@ -365,6 +365,32 @@ class TestVisibleViaAPI:
         assert body["primary_metric"] == "f1_macro"
         assert len(body["folds"]) == 5
 
+    def test_the_leaderboard_endpoint_serves_the_whole_roster(self, completed_job):
+        body = TestClient(app).get(f"/jobs/{completed_job}/leaderboard").json()
+        assert {e["model_name"] for e in body["entries"]} == {
+            "RandomForest",
+            "LogisticRegression",
+            "XGBoost",
+            "LightGBM",
+        }
+        assert [e["rank"] for e in body["entries"]] == [1, 2, 3, 4]
+
+    def test_the_winner_is_the_model_the_evaluation_describes(self, completed_job):
+        """Two endpoints, one run -- they must not disagree about who won."""
+        client = TestClient(app)
+        board = client.get(f"/jobs/{completed_job}/leaderboard").json()
+        evaluation = client.get(f"/jobs/{completed_job}/evaluation").json()
+
+        assert board["entries"][0]["model_name"] == evaluation["model_name"]
+
+    def test_the_feature_strategy_endpoint_serves_the_decision(self, completed_job):
+        """The decision, served apart from the recipe built out of it (spec 7.6)."""
+        body = TestClient(app).get(f"/jobs/{completed_job}/features").json()
+        assert {c["column"] for c in body["columns"]} == {"age", "city", "income"}
+        # No LLM in the test environment, so this must not claim one chose.
+        assert body["source"] == "hardcoded"
+        assert body["rejected_columns"] == []
+
     def test_the_report_endpoint_serves_readable_markdown(self, completed_job):
         body = TestClient(app).get(f"/jobs/{completed_job}/report").json()
         assert body["job_id"] == completed_job

@@ -28,13 +28,22 @@ from sqlalchemy.orm import Session
 from app.api.schemas import ReportResponse
 from app.core.db import get_db
 from app.core.storage import StorageError
-from app.ml.contracts import CleaningReport, ClusteringReport, EdaReport, EvaluationReport
+from app.ml.contracts import (
+    CleaningReport,
+    ClusteringReport,
+    EdaReport,
+    EvaluationReport,
+    FeatureStrategy,
+    Leaderboard,
+)
 from app.models.job import Job
 from app.services.artifacts import (
     CLEANING_ARTIFACT,
     CLUSTERING_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
+    FEATURE_ARTIFACT,
+    LEADERBOARD_ARTIFACT,
     REPORT_ARTIFACT,
     load_artifact_bytes,
     load_artifact_content,
@@ -122,6 +131,31 @@ def get_eda(job_id: int, db: Session = Depends(get_db)) -> EdaReport:
 )
 def get_clustering(job_id: int, db: Session = Depends(get_db)) -> ClusteringReport:
     return ClusteringReport.model_validate(_load_or_404(db, job_id, CLUSTERING_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/leaderboard",
+    response_model=Leaderboard,
+    summary="Every model that was tried, ranked on the same folds",
+)
+def get_leaderboard(job_id: int, db: Session = Depends(get_db)) -> Leaderboard:
+    """The ranking. ``/evaluation`` is the detailed account of the winner alone."""
+    return Leaderboard.model_validate(_load_or_404(db, job_id, LEADERBOARD_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/features",
+    response_model=FeatureStrategy,
+    summary="The per-column preparation the strategy agent chose, and what was overruled",
+)
+def get_features(job_id: int, db: Session = Depends(get_db)) -> FeatureStrategy:
+    """Deliberately served separately from the built recipe (spec 7.6).
+
+    This is *the decision*; ``preprocessing_report.json`` is what was built from
+    it. Two endpoints because a reader checking "did the LLM get overruled, and
+    where" is asking a different question from "what does the pipeline do".
+    """
+    return FeatureStrategy.model_validate(_load_or_404(db, job_id, FEATURE_ARTIFACT))
 
 
 @router.get(

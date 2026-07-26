@@ -113,6 +113,86 @@ with st.expander("All metrics", expanded=True):
         width="stretch",
     )
 
+# ---- The leaderboard --------------------------------------------------------
+
+leaderboard, _ = fetch("leaderboard")
+if leaderboard and leaderboard.get("entries"):
+    st.subheader("Models compared")
+    st.caption(
+        f"All {len(leaderboard['entries'])} models were scored on the same "
+        f"{leaderboard['n_folds']} folds, so the ranking compares like with like. "
+        "The spread matters as much as the score: a small lead between models "
+        "whose folds swing widely is not really a lead."
+    )
+    st.dataframe(
+        [
+            {
+                "Rank": entry["rank"],
+                "Model": entry["model_name"],
+                LABEL.get(entry["primary_metric"], entry["primary_metric"]): (
+                    "—" if entry["error"] else round(entry["score"], 4)
+                ),
+                "Spread across folds": "—" if entry["error"] else round(entry["std"], 4),
+                "Time": f"{entry['fit_seconds']:.1f}s",
+                "Note": entry["error"] or ("winner" if entry["rank"] == 1 else ""),
+            }
+            for entry in leaderboard["entries"]
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+    if leaderboard.get("resampling", "none") != "none":
+        st.caption(f"Class balancing: {leaderboard['resampling']}.")
+
+# ---- How each column was prepared -------------------------------------------
+
+features, _ = fetch("features")
+if features and features.get("columns"):
+    chosen = "the strategy model" if features["source"] == "llm" else "the built-in defaults"
+    with st.expander(f"How each column was prepared — chosen by {chosen}", expanded=False):
+        st.dataframe(
+            [
+                {
+                    "Column": column["column"],
+                    "Treated as": column["role"],
+                    "Blanks filled with": column["impute"],
+                    "Encoded": column["encode"],
+                    "Scaled": column["scale"],
+                }
+                for column in features["columns"]
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+
+        # The point of showing this at all: the model proposed, and code checked.
+        # A run where nothing was overruled should look different from one where
+        # something was, so both are stated rather than only the interesting case.
+        if features.get("rejected_columns"):
+            st.warning(
+                "Columns the model invented, which were rejected: "
+                + ", ".join(f"`{name}`" for name in features["rejected_columns"])
+            )
+        if features.get("overrides"):
+            st.caption("Choices the code overruled, because the data could not support them:")
+            st.dataframe(
+                [
+                    {
+                        "Column": o["column"],
+                        "Setting": o["field"],
+                        "Asked for": o["requested"],
+                        "Used instead": o["applied"],
+                        "Why": o["reason"],
+                    }
+                    for o in features["overrides"]
+                ],
+                hide_index=True,
+                width="stretch",
+            )
+        elif features["source"] == "llm":
+            st.caption("Every choice the model made was buildable as stated; nothing was overruled.")
+
+
 # ---- Folds ------------------------------------------------------------------
 
 primary = evaluation.get("primary_metric", "")
