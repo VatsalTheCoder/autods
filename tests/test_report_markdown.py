@@ -509,3 +509,28 @@ class TestSkippedStepsAreReported:
             evaluation=evaluation,
         )
         assert "checked against the real columns" in report
+
+
+class TestBothPlanSourcesReadAsSentences:
+    """The LLM branch of this line was unreachable until a live model was used."""
+
+    def test_the_default_branch_reads_correctly(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="c.csv",
+            plan=PlannerPlan(source="default"),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "Preparation steps came from the built-in defaults." in report
+
+    def test_the_llm_branch_reads_correctly(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="c.csv",
+            plan=PlannerPlan(source="llm"),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "Preparation steps were chosen by the planning model." in report
+        assert "came from chosen by" not in report

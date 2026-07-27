@@ -83,8 +83,12 @@ class TestMessageTranslation:
 
 # --- Live round-trip: needs a real key ---------------------------------------
 
+# Opts in on AUTODS_LIVE_API_KEY rather than GOOGLE_API_KEY. conftest.py moves
+# the real key there at import time so the rest of the suite cannot reach the
+# network by accident; this is the one test that is *supposed* to, so it reads
+# the key from where the guard put it. See tests/conftest.py.
 requires_live_key = pytest.mark.skipif(
-    not os.getenv("GOOGLE_API_KEY"),
+    not os.getenv("AUTODS_LIVE_API_KEY"),
     reason="set GOOGLE_API_KEY to run the live round-trip",
 )
 
@@ -98,7 +102,9 @@ class TestLiveRoundTrip:
     def test_structured_schema_round_trips_through_the_real_model(self):
         from app.core.llm import GeminiLLM
 
-        client = GeminiLLM()
+        # Passed explicitly: the guard has removed GOOGLE_API_KEY from the
+        # environment, so the client cannot pick it up implicitly here.
+        client = GeminiLLM(api_key=os.environ["AUTODS_LIVE_API_KEY"])
         result = structured_complete(
             client,
             [user("Classify the sentiment of: 'I love this product, it works great!'")],

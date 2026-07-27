@@ -83,6 +83,18 @@ services:
       S3_BUCKET: autods-artifacts
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
+      # Read from your .env (gitignored). Compose loads .env for interpolation
+      # but does *not* inject it into containers, so without this line a key in
+      # .env is silently invisible to the app and every agent quietly takes its
+      # deterministic fallback -- which looks like the key not working.
+      # The :- default keeps the stack starting with no key at all, which is
+      # what CI and a fresh clone rely on.
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # Overridable per-machine because which models a key can reach varies by
+      # account and changes over time. The defaults here mirror config.py, so
+      # the committed behaviour is unchanged when .env says nothing.
+      LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemma-3-4b-it}
+      LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemma-3-27b-it}
     ports:
       - "8000:8000"
     volumes:
@@ -125,6 +137,15 @@ services:
       S3_BUCKET: autods-artifacts
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
+      # The worker is where the pipeline's agents actually run -- planner,
+      # feature strategy, cluster profiles -- so this is the one that decides
+      # whether a job is analysed with an LLM or deterministically.
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      # Overridable per-machine because which models a key can reach varies by
+      # account and changes over time. The defaults here mirror config.py, so
+      # the committed behaviour is unchanged when .env says nothing.
+      LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemma-3-4b-it}
+      LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemma-3-27b-it}
     volumes:
       - ./app:/code/app
     depends_on:

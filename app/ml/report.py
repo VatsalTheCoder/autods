@@ -386,9 +386,16 @@ def _preparation(
         lines.append("")
         lines.append(sampling_note)
 
-    source = "chosen by the planning model" if plan.source == "llm" else "the built-in defaults"
+    # Both halves have to read as a sentence. The LLM branch had never actually
+    # run before Section 7 was tested against a live model, and produced
+    # "came from chosen by the planning model".
+    source = (
+        "were chosen by the planning model"
+        if plan.source == "llm"
+        else "came from the built-in defaults"
+    )
     lines.append("")
-    lines.append(f"Preparation steps came from {source}.")
+    lines.append(f"Preparation steps {source}.")
     if preprocessing.strategy_source == "llm":
         lines.append(
             "Per-column preparation was chosen by the feature strategy model and "
