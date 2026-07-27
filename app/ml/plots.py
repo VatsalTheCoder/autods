@@ -74,6 +74,20 @@ DIVERGING = LinearSegmentedColormap.from_list(
     ["#184f95", "#5598e7", "#f0efec", "#ea7f7e", "#b52c2c"],
 )
 
+# Sequential: one hue, light to dark, for a quantity with no meaningful zero --
+# the SHAP beeswarm colours points by how high a feature's value was (Section 8).
+# The diverging ramp would be wrong there: its neutral midpoint reads as a
+# boundary, and "average" is not one.
+SEQUENTIAL = LinearSegmentedColormap.from_list(
+    "autods_sequential",
+    ["#dbe7f7", "#5598e7", "#184f95"],
+)
+
+# The two ends of the diverging ramp, used on their own where the quantity is
+# purely directional: a SHAP contribution either raises or lowers the prediction.
+POSITIVE = "#b52c2c"
+NEGATIVE = "#184f95"
+
 
 @dataclass(slots=True)
 class Chart:
@@ -397,6 +411,250 @@ def render_cluster_scatter(
     # and with more than four groups the shape is part of the key.
     ax.legend(frameon=False, fontsize=8, labelcolor=INK_MUTED, loc="best", handletextpad=0.4)
     return _finish(fig, "cluster_scatter.png", "Clusters in two dimensions")
+
+
+# ---- SHAP (Section 8) -------------------------------------------------------
+#
+# Four charts, and the palette follows the same rule as everything above -- what
+# the colour is *for* decides which ramp it gets:
+#
+# * The importance bars encode **magnitude only**, so one hue.
+# * The beeswarm colours points by the feature's own value, which is a quantity
+#   with no meaningful zero once it has been scaled -- a sequential ramp, not the
+#   diverging one, or the midpoint would imply a boundary that is not there.
+# * A waterfall's bars encode **polarity**: a contribution either raises or lowers
+#   the prediction. That is exactly what the diverging palette's two arms are for,
+#   and the two colours are its endpoints rather than a third scheme.
+#
+# Rendered here rather than with ``shap.summary_plot`` deliberately. SHAP's own
+# plotting is built around its ``Explanation`` object and its own styling, which
+# would put a second visual language on the Results page next to the EDA charts
+# for no gain -- these are four ordinary matplotlib charts over arrays.
+
+
+def render_shap_charts(
+    *,
+    importance: list,
+    shap_values: np.ndarray,
+    feature_values: np.ndarray,
+    encoded_names: list[str],
+    origins: list[str],
+    examples: list,
+    class_label: str = "",
+    target: str = "",
+) -> list[Chart]:
+    """Every SHAP chart for one job, skipping any the data cannot support.
+
+    ``shap_values`` and ``feature_values`` are both ``(rows, encoded features)``
+    for the single output being visualised; the aggregated, all-classes ranking
+    arrives separately as ``importance`` because a bar chart of source columns
+    and a beeswarm of encoded features are answering different questions.
+    """
+    charts: list[Chart] = []
+    for chart in (
+        _shap_importance(importance, target=target),
+        _shap_beeswarm(shap_values, feature_values, encoded_names, class_label),
+        _shap_dependence(shap_values, feature_values, encoded_names, origins, class_label),
+    ):
+        if chart is not None:
+            charts.append(chart)
+
+    for index, example in enumerate(examples, start=1):
+        chart = _shap_waterfall(example, index, target=target)
+        if chart is not None:
+            charts.append(chart)
+    return charts
+
+
+def _shap_importance(importance: list, *, target: str) -> Chart | None:
+    """Which columns move the model most, in the user's own column names."""
+    if not importance:
+        return None
+
+    ranked = list(reversed(importance))  # largest at the top of a horizontal bar
+    labels = [_truncate(item.feature, 28) for item in ranked]
+    scores = [item.importance for item in ranked]
+
+    fig, ax = plt.subplots(figsize=(7.0, max(2.6, 0.34 * len(ranked) + 1.0)), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    ax.barh(labels, scores, color=SERIES, height=0.7)
+    ax.set_xlabel("mean |SHAP value|", color=INK_MUTED, fontsize=9)
+
+    about = f" on {target}" if target else ""
+    _style(ax, f"What drives the prediction{about}", grid_axis="x")
+    return _finish(fig, "shap_importance.png", "Global feature importance")
+
+
+def _shap_beeswarm(
+    shap_values: np.ndarray,
+    feature_values: np.ndarray,
+    encoded_names: list[str],
+    class_label: str,
+) -> Chart | None:
+    """One dot per row per feature: how much it moved, and from what value.
+
+    The chart the bar chart cannot be. A bar says ``support_calls`` matters; this
+    says *high* ``support_calls`` pushes towards churn and low values push away,
+    which is the part a reader can act on. Encoded features, not source columns,
+    because a point's colour is one feature's value -- ``city`` has no single
+    value to colour by, but ``city_London`` does.
+    """
+    if shap_values.size == 0:
+        return None
+
+    top = _top_encoded(shap_values, limit=10)
+    if not top:
+        return None
+
+    fig, ax = plt.subplots(figsize=(7.0, max(2.8, 0.42 * len(top) + 1.0)), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+
+    rng = np.random.default_rng(get_settings().random_seed)
+    scatter = None
+    for row, index in enumerate(reversed(top)):
+        contributions = shap_values[:, index]
+        # Colour by the feature's *rank* rather than its raw value: one extreme
+        # outlier would otherwise flatten every other point to the same shade,
+        # and the question the colour answers ("was this a high or low value for
+        # this feature?") is ordinal anyway.
+        shades = _rank_scale(feature_values[:, index])
+        jitter = rng.uniform(-0.16, 0.16, size=contributions.shape[0])
+        scatter = ax.scatter(
+            contributions,
+            np.full(contributions.shape[0], row) + jitter,
+            c=shades,
+            cmap=SEQUENTIAL,
+            s=9,
+            alpha=0.75,
+            linewidths=0,
+        )
+
+    ax.set_yticks(range(len(top)))
+    ax.set_yticklabels([_truncate(encoded_names[i], 26) for i in reversed(top)])
+    ax.axvline(0, color=INK_MUTED, linewidth=0.8)
+    ax.set_xlabel("SHAP value (push on the prediction)", color=INK_MUTED, fontsize=9)
+
+    if scatter is not None:
+        bar = fig.colorbar(scatter, ax=ax, pad=0.02, fraction=0.03)
+        bar.set_label("feature value (low → high)", color=INK_MUTED, fontsize=8)
+        bar.ax.tick_params(labelsize=0, length=0)
+        bar.outline.set_edgecolor(GRID)
+
+    _style(ax, _titled("How each feature's value moved the prediction", class_label), grid_axis="x")
+    return _finish(fig, "shap_summary.png", "SHAP summary")
+
+
+def _shap_dependence(
+    shap_values: np.ndarray,
+    feature_values: np.ndarray,
+    encoded_names: list[str],
+    origins: list[str],
+    class_label: str,
+) -> Chart | None:
+    """The strongest continuous feature's value against its own contribution.
+
+    Only drawn for a feature with enough distinct values for the shape to mean
+    something. A one-hot column takes two values and its "dependence plot" is two
+    vertical stacks -- true, and no more informative than the beeswarm row above
+    it, so it is skipped rather than padded out.
+    """
+    if shap_values.size == 0:
+        return None
+
+    for index in _top_encoded(shap_values, limit=len(encoded_names)):
+        column = feature_values[:, index]
+        if len(np.unique(column)) < 8:
+            continue
+
+        fig, ax = _figure()
+        ax.scatter(column, shap_values[:, index], color=SERIES, s=12, alpha=0.7, linewidths=0)
+        ax.axhline(0, color=INK_MUTED, linewidth=0.8)
+        ax.set_xlabel(
+            f"{_truncate(encoded_names[index], 40)} (as the model sees it)",
+            color=INK_MUTED,
+            fontsize=9,
+        )
+        ax.set_ylabel("SHAP value", color=INK_MUTED, fontsize=9)
+        _style(
+            ax,
+            _titled(f"How {_truncate(origins[index], 24)} changes the prediction", class_label),
+        )
+        return _finish(fig, "shap_dependence.png", "SHAP dependence")
+
+    return None
+
+
+def _shap_waterfall(example, index: int, *, target: str) -> Chart | None:
+    """Why one row got the answer it got, as an addition a reader can follow.
+
+    The bars are the contributions and they sum, with the base value, to the
+    model's output -- which is stated on the chart. An explanation that does not
+    add up is a picture, not an account, so the arithmetic is shown rather than
+    implied.
+    """
+    contributions = list(getattr(example, "contributions", []))
+    if not contributions:
+        return None
+
+    items = list(reversed(contributions))
+    labels = [f"{_truncate(c.feature, 22)} = {_truncate(c.value, 14)}" for c in items]
+    scores = [c.contribution for c in items]
+    colours = [POSITIVE if score >= 0 else NEGATIVE for score in scores]
+
+    fig, ax = plt.subplots(figsize=(7.0, max(2.6, 0.36 * len(items) + 1.2)), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    ax.barh(labels, scores, color=colours, height=0.68)
+    ax.axvline(0, color=INK_MUTED, linewidth=0.8)
+    # The axis has to name the direction, not just the quantity. On a binary
+    # model the contributions push towards the *positive* class whichever way the
+    # row was predicted, so a bare "push on the prediction" would leave a reader
+    # of a negative row's chart reading every bar backwards.
+    ax.set_xlabel(
+        f"push towards {target} = {example.explained_class} (SHAP value)"
+        if example.explained_class
+        else "push on the prediction (SHAP value)",
+        color=INK_MUTED,
+        fontsize=9,
+    )
+
+    about = f"{target} = {example.predicted}" if target else str(example.predicted)
+    subtitle = f"row {example.row_label} → {_truncate(about, 40)}"
+    if example.probability is not None:
+        subtitle += f" ({example.probability:.0%} confidence)"
+
+    _style(ax, f"Why this prediction: {subtitle}", grid_axis="x", small=True)
+    ax.annotate(
+        f"baseline {example.base_value:.3f} + contributions = {example.output_value:.3f}",
+        xy=(0.0, -0.22),
+        xycoords="axes fraction",
+        color=INK_MUTED,
+        fontsize=8,
+    )
+    return _finish(fig, f"shap_explanation_{index}.png", f"Why row {example.row_label}")
+
+
+def _top_encoded(shap_values: np.ndarray, *, limit: int) -> list[int]:
+    """Indices of the encoded features with the largest mean absolute contribution."""
+    magnitude = np.abs(shap_values).mean(axis=0)
+    order = np.argsort(-magnitude)
+    return [int(i) for i in order[:limit] if magnitude[int(i)] > 0]
+
+
+def _rank_scale(column: np.ndarray) -> np.ndarray:
+    """Values as their position in the column's own order, in [0, 1].
+
+    A constant column has no order, so every point gets the midpoint rather than
+    a division by zero.
+    """
+    order = np.argsort(np.argsort(column)).astype(float)
+    if len(order) < 2:
+        return np.full(len(order), 0.5)
+    return order / (len(order) - 1)
+
+
+def _titled(text: str, class_label: str) -> str:
+    """Name the class a chart is about, when there is more than one to confuse."""
+    return f"{text} ({class_label})" if class_label else text
 
 
 # ---- Shared plumbing --------------------------------------------------------

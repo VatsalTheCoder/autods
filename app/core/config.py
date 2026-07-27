@@ -138,6 +138,23 @@ class Settings(BaseSettings):
     # through imputation, so it is removed structurally rather than filled in.
     max_null_column_rate: float = 0.6
 
+    # ---- Final training & SHAP (Section 8) -------------------------------
+    # How many rows SHAP explains. TreeExplainer is exact but its cost grows
+    # with rows x features x trees, and a global importance ranking is stable
+    # long before every row is used -- the mean absolute SHAP value over 500
+    # rows is not meaningfully different from the one over 50,000. The rows are
+    # a stratified sample where that is possible, and the report says so rather
+    # than implying the whole dataset was explained.
+    shap_max_rows: int = 500
+
+    # How many source columns the importance chart and report table show. Past
+    # about fifteen bars a reader is skimming, not reading.
+    shap_top_features: int = 15
+    # Individual predictions explained in full. One per class (or the extremes
+    # of a regression) is enough to show the mechanism; a page of waterfalls is
+    # not more convincing than three.
+    shap_local_examples: int = 3
+
     # ---- EDA & clustering (Section 6) -----------------------------------
     # The range of k the silhouette search tries. Two is the smallest number of
     # groups that means anything; beyond about eight, "natural groupings" stop

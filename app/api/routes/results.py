@@ -25,7 +25,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.schemas import ReportResponse
+from app.api.schemas import (
+    PredictionRequest,
+    PredictionResponse,
+    ReportResponse,
+    RowPrediction,
+)
 from app.core.db import get_db
 from app.core.storage import StorageError
 from app.ml.contracts import (
@@ -33,7 +38,9 @@ from app.ml.contracts import (
     ClusteringReport,
     EdaReport,
     EvaluationReport,
+    ExplainabilityReport,
     FeatureStrategy,
+    FinalModelInfo,
     Leaderboard,
 )
 from app.models.job import Job
@@ -42,13 +49,16 @@ from app.services.artifacts import (
     CLUSTERING_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
+    EXPLAINABILITY_ARTIFACT,
     FEATURE_ARTIFACT,
+    FINAL_MODEL_INFO_ARTIFACT,
     LEADERBOARD_ARTIFACT,
     REPORT_ARTIFACT,
     load_artifact_bytes,
     load_artifact_content,
     load_json_artifact,
 )
+from app.services.prediction import ModelNotReady, PredictionError, predict_rows
 
 # Artifacts are immutable for the life of a job unless it is re-run, and the
 # Results page re-executes its whole script on every interaction (Streamlit's
@@ -156,6 +166,79 @@ def get_features(job_id: int, db: Session = Depends(get_db)) -> FeatureStrategy:
     where" is asking a different question from "what does the pipeline do".
     """
     return FeatureStrategy.model_validate(_load_or_404(db, job_id, FEATURE_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/explainability",
+    response_model=ExplainabilityReport,
+    summary="SHAP over the saved model, in the user's own column names",
+)
+def get_explainability(job_id: int, db: Session = Depends(get_db)) -> ExplainabilityReport:
+    """The explanation (spec 7.10).
+
+    Includes ``feature_name_mapping`` -- every encoded feature and the column it
+    came from -- so a reader can check the translation rather than trust it.
+    """
+    return ExplainabilityReport.model_validate(_load_or_404(db, job_id, EXPLAINABILITY_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/model",
+    response_model=FinalModelInfo,
+    summary="What the served model is, and which columns it expects",
+)
+def get_final_model(job_id: int, db: Session = Depends(get_db)) -> FinalModelInfo:
+    """The description of ``final_model.pkl``.
+
+    The prediction form reads this to know what to ask for, which is why the
+    input columns carry a dtype and an example value: a user guessing whether
+    ``tenure_months`` wants years is a user who submits a bad prediction.
+    """
+    return FinalModelInfo.model_validate(_load_or_404(db, job_id, FINAL_MODEL_INFO_ARTIFACT))
+
+
+@router.post(
+    "/jobs/{job_id}/predict",
+    response_model=PredictionResponse,
+    summary="Predict new rows with the model this job trained",
+)
+def predict(
+    job_id: int, request: PredictionRequest, db: Session = Depends(get_db)
+) -> PredictionResponse:
+    """Load the saved pipeline and run it over the supplied rows (spec 7.11).
+
+    The pipeline is loaded from object storage rather than held in the API
+    process: the model is produced by the *worker*, on a different machine as far
+    as this code is concerned, and S3 is the only thing both of them can see.
+
+    ``ModelNotReady`` becomes a 404 and any other prediction problem a 400. The
+    distinction is real -- "this job has not trained a model yet" is an ordinary
+    state a Results page polls into, while "your rows do not match the model's
+    columns" is a request that will never work as sent.
+    """
+    _require_job(db, job_id)
+    try:
+        outcome = predict_rows(db, job_id, request.rows)
+    except ModelNotReady as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PredictionError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage is unavailable."
+        ) from exc
+
+    return PredictionResponse(
+        job_id=job_id,
+        model_name=outcome.info.model_name,
+        target_column=outcome.info.target_column,
+        predictions=[
+            RowPrediction(prediction=row.prediction, probabilities=row.probabilities)
+            for row in outcome.predictions
+        ],
+        missing_columns=outcome.missing_columns,
+        unexpected_columns=outcome.unexpected_columns,
+    )
 
 
 @router.get(

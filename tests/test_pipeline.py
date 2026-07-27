@@ -39,6 +39,9 @@ from app.services.artifacts import (
     CLUSTERING_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
+    EXPLAINABILITY_ARTIFACT,
+    FINAL_MODEL_ARTIFACT,
+    FINAL_MODEL_INFO_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
     PREPROCESSOR_ARTIFACT,
@@ -142,7 +145,16 @@ class TestSuccessfulRun:
         with SessionLocal() as db:
             runs = {r.name: r for r in db.get(Job, completed_job).agent_runs}
 
-        for name in ("planner", "cleaning", "eda", "preprocessing", "modeling", "report"):
+        for name in (
+            "planner",
+            "cleaning",
+            "eda",
+            "preprocessing",
+            "modeling",
+            "final_training",
+            "explainability",
+            "report",
+        ):
             assert runs[name].status is AgentRunStatus.COMPLETED, name
             assert runs[name].started_at is not None
 
@@ -166,6 +178,8 @@ class TestArtifacts:
             CLUSTERING_ARTIFACT,
             PREPROCESSING_ARTIFACT,
             EVALUATION_ARTIFACT,
+            FINAL_MODEL_INFO_ARTIFACT,
+            EXPLAINABILITY_ARTIFACT,
         ],
     )
     def test_json_artifacts_are_registered_and_readable(self, completed_job, name):
@@ -212,6 +226,43 @@ class TestArtifacts:
         restored = joblib.load(io.BytesIO(data))
         with pytest.raises(NotFittedError):
             check_is_fitted(restored)
+
+    def test_the_final_model_is_fitted_and_usable(self, completed_job):
+        """The counterpart to the test above, and the one exception to it.
+
+        The recipe in S3 must be unfitted; the *final model* in S3 must be
+        fitted, on every row, and must predict when loaded back into a fresh
+        process. Both artifacts exist precisely so that each claim is checkable
+        rather than asserted (spec 7.9).
+        """
+        with SessionLocal() as db:
+            data = load_artifact_bytes(db, completed_job, FINAL_MODEL_ARTIFACT)
+            info = load_json_artifact(db, completed_job, FINAL_MODEL_INFO_ARTIFACT)
+
+        restored = joblib.load(io.BytesIO(data))
+        check_is_fitted(restored.named_steps["model"])
+        assert info["n_rows"] == N_ROWS
+
+        row = pd.DataFrame([{"age": 41, "city": "London", "income": 42000}])
+        assert restored.predict(row)[0] in ("yes", "no")
+
+    def test_the_explanation_is_in_the_users_column_names(self, completed_job):
+        """Section 8's whole point: no reader should meet ``city_London``."""
+        with SessionLocal() as db:
+            payload = load_json_artifact(db, completed_job, EXPLAINABILITY_ARTIFACT)
+
+        assert payload["global_importance"]
+        named = {item["feature"] for item in payload["global_importance"]}
+        assert named <= {"age", "city", "income"}
+        # And the encoded names it was translated from are published alongside.
+        assert "city_London" in payload["feature_name_mapping"]
+        assert payload["feature_name_mapping"]["city_London"] == "city"
+
+    def test_the_report_explains_the_model_and_names_what_is_served(self, completed_job):
+        with SessionLocal() as db:
+            markdown = load_artifact_bytes(db, completed_job, REPORT_ARTIFACT).decode("utf-8")
+        assert "## Why the model predicts what it does" in markdown
+        assert "## The model that gets served" in markdown
 
     def test_the_evaluation_artifact_holds_real_cross_validated_scores(self, completed_job):
         with SessionLocal() as db:

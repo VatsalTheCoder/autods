@@ -123,5 +123,52 @@ class ReportResponse(BaseModel):
     markdown: str
 
 
+class PredictionRequest(BaseModel):
+    """Rows to predict, in the user's own raw columns (Section 8).
+
+    Raw columns, not encoded ones: the saved pipeline carries its own
+    preprocessing, so a caller sends ``{"city": "London", "age": 41}`` and never
+    has to know what the recipe did to either. That is the whole reason the
+    preprocessor and the estimator were saved as one object.
+
+    Values are ``Any`` because a column can legitimately be a number, a label, a
+    date string or null -- the pipeline's imputers and encoders are what decide
+    whether a given value is usable, and duplicating those rules in the request
+    schema would give two places to disagree about it.
+    """
+
+    rows: list[dict[str, Any]] = Field(
+        ..., min_length=1, description="One object per row, keyed by column name."
+    )
+
+
+class RowPrediction(BaseModel):
+    """One row's answer, with the model's confidence where it has one."""
+
+    prediction: Any
+    # Probability per class, keyed by the label the user uploaded rather than by
+    # the model's internal 0..n-1 encoding. Empty for regression.
+    probabilities: dict[str, float] = Field(default_factory=dict)
+
+
+class PredictionResponse(BaseModel):
+    """Live predictions from the saved model (spec 7.11).
+
+    ``missing_columns`` and ``unexpected_columns`` are reported rather than
+    rejected. A missing column is imputed by the pipeline exactly as a missing
+    value in training data would be, which is a legitimate prediction on partial
+    information -- but a caller who misspelled a column name would otherwise get
+    a confident answer computed from an imputed median and no hint that anything
+    was wrong.
+    """
+
+    job_id: int
+    model_name: str
+    target_column: str
+    predictions: list[RowPrediction] = Field(default_factory=list)
+    missing_columns: list[str] = Field(default_factory=list)
+    unexpected_columns: list[str] = Field(default_factory=list)
+
+
 class ErrorResponse(BaseModel):
     detail: str

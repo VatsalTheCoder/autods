@@ -350,6 +350,183 @@ class Leaderboard(BaseModel):
         return next((e for e in self.entries if not e.error), None)
 
 
+# ---- Final training & explainability (Section 8) ----------------------------
+
+
+class PredictorColumn(BaseModel):
+    """One raw input column the served model expects, as a form can present it.
+
+    Raw, not encoded: the caller of ``POST /jobs/{id}/predict`` sends ``city:
+    "London"``, and the saved pipeline does the one-hot encoding itself. Anything
+    else would make the endpoint's contract the *recipe's* internals, which
+    change whenever the feature strategy does.
+    """
+
+    name: str
+    dtype: str
+    role: ColumnRole = "numeric"
+    # One value observed in the training data, so a form can be pre-filled with
+    # something plausible rather than leaving the user to guess the units.
+    example: str = ""
+
+    # False for a column the recipe drops -- excluded at the checkpoint, or given
+    # ``role: drop`` by the strategy. It stays on the list because the fitted
+    # ColumnTransformer was fitted against a frame that had it and will object to
+    # one that does not, but nothing should *ask* a user for a value the model
+    # then ignores, and a blank one must not be reported as a missing input.
+    used: bool = True
+
+
+class FinalModelInfo(BaseModel):
+    """``final_model.json`` -- what the served pickle is, and what it is not.
+
+    The pickle beside it is the *only* estimator in this project fitted on every
+    row. That is correct here and nowhere else: cross-validation has already
+    produced the honest score, and refitting on everything is how you get the
+    strongest model to actually serve (spec 7.9). The distinction this file has to
+    keep visible is that the final model therefore has **no held-out score of its
+    own** -- ``cv_score`` is carried over from the cross-validated run of the same
+    configuration, and is an estimate of this model's performance, not a
+    measurement of it.
+    """
+
+    model_name: str
+    task_type: TaskType
+    target_column: str
+
+    # Rows and raw feature columns the refit saw. ``n_rows`` matching the cleaned
+    # dataset's row count is the check that "full dataset" means what it says.
+    n_rows: int
+    n_features: int
+    # Raw input columns, in the order the recipe expects them.
+    feature_columns: list[PredictorColumn] = Field(default_factory=list)
+    # Class labels as the user uploaded them, in the model's own order. Empty for
+    # regression.
+    classes: list[str] = Field(default_factory=list)
+
+    # The metric the leaderboard ranked on, and the winner's cross-validated
+    # value. Named ``cv_`` throughout so no reader mistakes it for a score this
+    # model earned on data it had not seen.
+    primary_metric: str = ""
+    cv_score: float | None = None
+    resampling: str = ""
+
+    artifact: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+
+class FeatureImportance(BaseModel):
+    """How much one **source** column moved the model's output, on average.
+
+    Source column, not encoded feature: SHAP explains ``city_London`` and
+    ``city_Leeds``, and a user wants to know about ``city``. The importance here
+    is the sum of the mean absolute SHAP value over every encoded feature the
+    column produced, which is the aggregation that keeps a one-hot column's total
+    influence comparable with a numeric column's (spec 7.10).
+    """
+
+    feature: str
+    importance: float
+    # The column's share of all importance, so a reader can see whether the top
+    # feature dominates or the model is spreading its attention.
+    share: float = Field(default=0.0, ge=0.0, le=1.0)
+    # What the column expanded into. This is the audit trail for the mapping --
+    # the part of Section 8 most likely to be quietly wrong.
+    encoded_features: list[str] = Field(default_factory=list)
+
+    # "higher values push the prediction up" and friends -- populated only for a
+    # column that produced exactly one numeric feature, where the sign of the
+    # value/SHAP relationship is well defined. A one-hot column has no such
+    # direction and gets an empty string rather than an invented one.
+    direction: str = ""
+
+
+class LocalContribution(BaseModel):
+    """One feature's push on one row's prediction, in the units of the output."""
+
+    feature: str
+    # The row's actual value, formatted for display. A string because the column
+    # may be a label, a number or a timestamp, and the report only shows it.
+    value: str
+    contribution: float
+
+
+class LocalExplanation(BaseModel):
+    """Why *this row* got *this answer* -- SHAP's additive decomposition.
+
+    ``base_value + sum(contributions) == prediction``, in the model's output
+    units (log-odds for a classifier, the target's units for a regressor). The
+    contributions listed are the largest few; ``other_contribution`` carries the
+    rest so the sum still adds up rather than appearing to lose mass.
+
+    ``predicted`` and ``explained_class`` are separate because they can honestly
+    differ. A gradient-booster on a binary target produces **one** output -- the
+    margin towards the positive class -- so a row predicted ``no`` is explained by
+    contributions that push *away* from ``yes``. Collapsing the two would mean
+    either mislabelling the answer or mislabelling the direction.
+    """
+
+    row_label: str
+    # The model's answer for this row, and its confidence in that answer.
+    predicted: str
+    probability: float | None = None
+    # The class the contributions below push towards. Empty for regression.
+    explained_class: str = ""
+
+    base_value: float
+    contributions: list[LocalContribution] = Field(default_factory=list)
+    other_contribution: float = 0.0
+    # base + contributions + other, in output units. Stated so a reader can do
+    # the addition themselves.
+    output_value: float = 0.0
+
+
+class ExplainabilityReport(BaseModel):
+    """``explainability_report.json`` -- the SHAP account of the final model.
+
+    The project's explainable-AI claim in one artifact (spec 7.10). Two things in
+    it are worth more than the numbers:
+
+    * ``feature_name_mapping`` -- every encoded feature and the source column it
+      came from. The mapping is what makes the rest legible, and publishing it
+      means a reader can check it rather than trust it.
+    * ``additivity_max_error`` -- SHAP values are only meaningful if they add up
+      to the model's output. This is the largest gap found across the explained
+      rows, measured rather than assumed. A large number here invalidates every
+      other number in the file, so it is recorded next to them.
+    """
+
+    model_name: str
+    task_type: TaskType
+    target_column: str
+
+    # "TreeExplainer" or "LinearExplainer" -- which one, and why, is the whole of
+    # the dispatch decision (see ``ml/explain.py``).
+    explainer: str = ""
+    n_rows_explained: int = 0
+    n_encoded_features: int = 0
+    # Set when the rows explained are a sample rather than the whole dataset.
+    sampling_note: str = ""
+
+    classes: list[str] = Field(default_factory=list)
+    # How the per-class SHAP values were combined into one ranking. Recorded
+    # because "importance" means something different for a 3-class model than a
+    # regression, and the difference should not be silent.
+    aggregation: str = ""
+
+    global_importance: list[FeatureImportance] = Field(default_factory=list)
+    examples: list[LocalExplanation] = Field(default_factory=list)
+
+    feature_name_mapping: dict[str, str] = Field(default_factory=dict)
+    additivity_max_error: float = 0.0
+
+    plots: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    def top_features(self, limit: int = 5) -> list[FeatureImportance]:
+        return self.global_importance[:limit]
+
+
 # ---- EDA (Section 6) --------------------------------------------------------
 
 

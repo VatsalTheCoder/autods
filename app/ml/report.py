@@ -25,6 +25,8 @@ from app.ml.contracts import (
     ClusteringReport,
     EdaReport,
     EvaluationReport,
+    ExplainabilityReport,
+    FinalModelInfo,
     Leaderboard,
     PlannerPlan,
     PreprocessingSpec,
@@ -55,13 +57,16 @@ def build_markdown_report(
     eda: EdaReport | None = None,
     clustering: ClusteringReport | None = None,
     leaderboard: Leaderboard | None = None,
+    final_model: FinalModelInfo | None = None,
+    explainability: ExplainabilityReport | None = None,
     sampling_note: str = "",
 ) -> str:
     """Assemble the job's report from its artifacts.
 
-    ``eda``, ``clustering`` and ``leaderboard`` are optional so the report still
-    builds for a run whose EDA stage was skipped or failed -- it is descriptive,
-    and a missing chart should not cost the reader the model results.
+    ``eda``, ``clustering``, ``leaderboard`` and the two Section 8 arguments are
+    optional so the report still builds for a run whose EDA stage was skipped or
+    whose model could not be explained -- those are descriptive, and a missing
+    chart should not cost the reader the model results.
     """
     sections = [
         _heading(filename, evaluation),
@@ -70,10 +75,12 @@ def build_markdown_report(
         _metrics_table(evaluation),
         _leaderboard_table(leaderboard),
         _folds_table(evaluation),
+        _why_it_predicts(explainability),
         _data_quality(cleaning),
         _what_the_data_looks_like(eda),
         _groups(clustering),
         _preparation(plan, preprocessing, sampling_note),
+        _served_model(final_model),
         _caveats(evaluation),
         _limitations(),
     ]
@@ -252,6 +259,133 @@ def _folds_table(evaluation: EvaluationReport) -> str:
         value = fold.metrics.get(primary)
         shown = _fmt(primary, value) if value is not None else "—"
         lines.append(f"| {fold.fold} | {fold.n_train:,} | {fold.n_test:,} | {shown} |")
+    return "\n".join(lines)
+
+
+def _why_it_predicts(explainability: ExplainabilityReport | None) -> str:
+    """The SHAP account, in the user's columns rather than the model's (spec 7.10).
+
+    Placed directly after the scores on purpose. "How well does it do" and "why
+    does it do it" are the two questions a reader has, in that order, and putting
+    the explanation after the data-quality appendix would bury the answer to the
+    second one.
+    """
+    if explainability is None:
+        return ""
+    if not explainability.global_importance:
+        # An unexplainable model says so here rather than leaving a gap the
+        # reader has to interpret.
+        if not explainability.warnings:
+            return ""
+        stated = "\n".join(f"- {warning}" for warning in explainability.warnings)
+        return f"## Why the model predicts what it does\n\n{stated}"
+
+    lines = [
+        "## Why the model predicts what it does",
+        "",
+        (
+            f"Measured with SHAP ({explainability.explainer}) over "
+            f"{explainability.n_rows_explained:,} rows. The model works in "
+            f"{explainability.n_encoded_features:,} encoded features -- one-hot columns, "
+            "calendar parts, frequency encodings -- and every one of them has been "
+            "traced back to the column it came from, so the table below is in your "
+            "column names and not the pipeline's."
+        ),
+        "",
+        "| Column | Influence | Share | How it acts |",
+        "| --- | ---: | ---: | --- |",
+    ]
+    for item in explainability.top_features(10):
+        lines.append(
+            f"| `{item.feature}` | {item.importance:.4f} | {item.share:.0%} | "
+            f"{item.direction or '—'} |"
+        )
+
+    lines += [
+        "",
+        (
+            "Influence is the mean absolute SHAP value: how far, on average, that "
+            "column moved the model's output away from its baseline. It says "
+            "**how much** a column matters, not whether the relationship is causal "
+            "-- a column can be influential because it is a proxy for something "
+            "the dataset does not contain."
+        ),
+    ]
+
+    if explainability.examples:
+        example = explainability.examples[0]
+        confidence = (
+            f" with {example.probability:.0%} confidence" if example.probability is not None else ""
+        )
+        # Said explicitly, because on a binary model the contributions push
+        # towards the positive class whichever way the row came out -- a reader
+        # of a negative row would otherwise read every sign backwards.
+        direction = (
+            f" The contributions below are pushes towards `{example.explained_class}`."
+            if example.explained_class
+            else ""
+        )
+        lines += [
+            "",
+            "### One prediction, in full",
+            "",
+            (
+                f"Row {example.row_label} was predicted `{example.predicted}`{confidence}. "
+                "SHAP decomposes that answer additively: start at the baseline the "
+                "model gives an average row, then add what each column "
+                f"contributed.{direction}"
+            ),
+            "",
+            f"- Baseline: {example.base_value:+.4f}",
+        ]
+        lines += [
+            f"- `{c.feature}` = {c.value}: {c.contribution:+.4f}" for c in example.contributions[:8]
+        ]
+        if example.other_contribution:
+            lines.append(f"- Everything else, combined: {example.other_contribution:+.4f}")
+        lines.append(f"- **Model output: {example.output_value:+.4f}**")
+
+    if explainability.sampling_note:
+        lines += ["", explainability.sampling_note]
+    if explainability.warnings:
+        lines += [""] + [f"- {warning}" for warning in explainability.warnings]
+
+    return "\n".join(lines)
+
+
+def _served_model(final: FinalModelInfo | None) -> str:
+    """What is actually saved, and the sentence that keeps its score honest."""
+    if final is None:
+        return ""
+
+    lines = [
+        "## The model that gets served",
+        "",
+        (
+            f"**{final.model_name}**, refitted on all {final.n_rows:,} rows of the "
+            f"cleaned dataset and saved as `{final.artifact or 'final_model.pkl'}`. "
+            "This is the only estimator in the run fitted on every row, and it is "
+            "the one a live prediction request loads."
+        ),
+    ]
+
+    if final.primary_metric and final.cv_score is not None:
+        lines += [
+            "",
+            (
+                f"Its {_label(final.primary_metric)} is not measured again here. The "
+                f"{_fmt(final.primary_metric, final.cv_score)} reported above is the "
+                "cross-validated estimate for this configuration, and a model fitted "
+                "on every row has no unseen data left to score itself against -- "
+                "which is precisely why the cross-validation came first."
+            ),
+        ]
+
+    if final.resampling and final.resampling != "none":
+        lines += ["", f"Resampling: {final.resampling}."]
+    if final.warnings:
+        lines += [""] + [f"- {warning}" for warning in final.warnings]
+
     return "\n".join(lines)
 
 
