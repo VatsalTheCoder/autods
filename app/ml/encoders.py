@@ -76,6 +76,32 @@ class _FrameTransformer(BaseEstimator, TransformerMixin):
         frame.columns = self.columns_[: frame.shape[1]]
         return frame
 
+    def _names_in(self, input_features=None) -> list[str]:
+        """The source column names to build output names from.
+
+        ``columns_`` is only as good as what ``fit`` was handed, and a step that
+        sits *behind* an imputer is handed a bare NumPy array -- so ``columns_``
+        holds ``["0"]`` and naming from it produces ``0_frequency`` instead of
+        ``email_frequency``. That is what ``input_features`` is for: scikit-learn
+        threads the real names down a ``Pipeline`` and offers them to each step's
+        ``get_feature_names_out``, precisely so a step that lost them can still
+        name its output correctly. Preferring the argument over ``columns_`` is
+        the fix, and it is why ``DatetimeFeatures`` never had the bug -- it is
+        first in its branch and so receives a real DataFrame.
+
+        ``columns_`` remains the fallback for a direct call with no argument,
+        where it is the only thing available and is usually right.
+        """
+        if input_features is None:
+            return list(self.columns_)
+        names = [str(c) for c in input_features]
+        if len(names) != self.n_features_in_:
+            raise ValueError(
+                f"{type(self).__name__} was fitted on {self.n_features_in_} columns "
+                f"but input_features names {len(names)}."
+            )
+        return names
+
 
 class DatetimeFeatures(_FrameTransformer):
     """Split each timestamp column into its calendar parts.
@@ -111,7 +137,11 @@ class DatetimeFeatures(_FrameTransformer):
     def get_feature_names_out(self, input_features=None) -> np.ndarray:
         check_is_fitted(self)
         return np.asarray(
-            [f"{column}_{part}" for column in self.columns_ for part in DATETIME_PARTS],
+            [
+                f"{column}_{part}"
+                for column in self._names_in(input_features)
+                for part in DATETIME_PARTS
+            ],
             dtype=object,
         )
 
@@ -147,9 +177,12 @@ class FrequencyEncoder(_FrameTransformer):
     def transform(self, X):  # noqa: N803 - sklearn's parameter name
         check_is_fitted(self)
         frame = self._as_frame(X)
-        # Named to match ``get_feature_names_out`` exactly: scikit-learn treats
-        # the two as one promise, and a mismatch surfaces as a confusing column
-        # error much further down the pipeline.
+        # Named from ``columns_``, which matches ``get_feature_names_out`` for a
+        # direct call. Behind an imputer the two legitimately differ -- these
+        # labels are then the positional stand-ins the branch works in, while
+        # ``get_feature_names_out(input_features)`` supplies the real names to
+        # whoever is naming the output. The *order* is what has to agree, and it
+        # does: one output per fitted column, in fitted order.
         out = {
             f"{column}_frequency": frame[column]
             .astype(str)
@@ -161,4 +194,6 @@ class FrequencyEncoder(_FrameTransformer):
 
     def get_feature_names_out(self, input_features=None) -> np.ndarray:
         check_is_fitted(self)
-        return np.asarray([f"{column}_frequency" for column in self.columns_], dtype=object)
+        return np.asarray(
+            [f"{column}_frequency" for column in self._names_in(input_features)], dtype=object
+        )

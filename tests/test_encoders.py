@@ -19,9 +19,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.exceptions import NotFittedError
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 from sklearn.utils.validation import check_is_fitted
 
-from app.ml.encoders import DatetimeFeatures, FrequencyEncoder
+from app.ml.encoders import DATETIME_PARTS, DatetimeFeatures, FrequencyEncoder
 
 
 class TestDatetimeFeatures:
@@ -152,3 +154,62 @@ class TestBothAreProperPipelineSteps:
         frame = pd.DataFrame({"a": ["2024-01-01", "2024-02-01"]})
         encoder.fit(frame)
         assert len(encoder.transform(frame.to_numpy())) == 2
+
+
+class TestOutputNamesBehindAnImputer:
+    """The naming bug the standalone tests above cannot see.
+
+    Every other test in this file fits an encoder on a DataFrame, where it is
+    handed real column names and everything works. In the actual recipe the text
+    branch is ``impute -> encode``, and ``SimpleImputer`` returns a bare NumPy
+    array -- so the encoder records positional labels and, before this was fixed,
+    named its output ``0_frequency`` instead of ``email_frequency``.
+
+    Nothing consumed feature names until Section 8's SHAP work, which is why a
+    green suite and a wrong name coexisted for a section. These tests build the
+    *branch*, because that is the only shape in which the bug exists.
+    """
+
+    def _text_branch(self) -> Pipeline:
+        """The same two steps ``preprocessing._text_branches`` assembles."""
+        return Pipeline(
+            steps=[
+                ("impute", SimpleImputer(strategy="constant", fill_value="missing")),
+                ("encode", FrequencyEncoder()),
+            ]
+        )
+
+    def test_frequency_output_is_named_for_its_source_column(self):
+        frame = pd.DataFrame({"email": ["a@x.com", "b@x.com", "a@x.com", None]})
+        branch = self._text_branch().fit(frame)
+        assert list(branch.get_feature_names_out(["email"])) == ["email_frequency"]
+
+    def test_datetime_output_is_named_for_its_source_column(self):
+        """The datetime branch escapes the bug by extracting before imputing."""
+        frame = pd.DataFrame({"signed_up": ["2024-01-01", "2024-02-01"]})
+        branch = Pipeline(
+            steps=[("parts", DatetimeFeatures()), ("impute", SimpleImputer(strategy="median"))]
+        ).fit(frame)
+        assert list(branch.get_feature_names_out(["signed_up"])) == [
+            f"signed_up_{part}" for part in DATETIME_PARTS
+        ]
+
+    def test_input_features_wins_over_what_fit_happened_to_see(self):
+        """The argument is the point: it carries names ``fit`` could not know."""
+        encoder = FrequencyEncoder().fit(np.array([["a"], ["b"]], dtype=object))
+        assert list(encoder.get_feature_names_out()) == ["0_frequency"]
+        assert list(encoder.get_feature_names_out(["city"])) == ["city_frequency"]
+
+    def test_a_wrong_length_is_refused_rather_than_silently_mismatched(self):
+        """Names paired with the wrong columns would mislabel every explanation."""
+        encoder = FrequencyEncoder().fit(pd.DataFrame({"a": ["x"], "b": ["y"]}))
+        with pytest.raises(ValueError, match="input_features"):
+            encoder.get_feature_names_out(["only_one"])
+
+    def test_one_output_per_column_in_fitted_order(self):
+        """What ``transform`` and ``get_feature_names_out`` must still agree on."""
+        frame = pd.DataFrame({"first": ["a", "b"], "second": ["x", "y"]})
+        branch = self._text_branch().fit(frame)
+        names = branch.get_feature_names_out(["first", "second"])
+        assert list(names) == ["first_frequency", "second_frequency"]
+        assert branch.transform(frame).shape[1] == len(names)
