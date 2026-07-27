@@ -69,12 +69,27 @@ class Settings(BaseSettings):
     # to start, which is deliberate: it forces the FakeLLM path in tests.
     google_api_key: str | None = None
 
-    # Model ids are settings, not constants, because spec section 6.3 flags the
-    # exact "Gemma 4" names as UNVERIFIED. Whatever the provider actually calls
-    # the two tiers, it is one env var away -- no code change. Override both
-    # before pointing the real client at live traffic.
-    llm_model_small: str = "gemma-3-4b-it"
-    llm_model_large: str = "gemma-3-27b-it"
+    # Model ids are settings, not constants, because spec 6.3 flags its own
+    # names as UNVERIFIED and says to override them with whatever the provider
+    # actually serves. These are the result of doing that, checked against live
+    # AI Studio on 2026-07-27: the spec's gemma-3-4b-it and gemma-3-27b-it are
+    # both gone (404), and the Gemma family there is now Gemma 4, whose smallest
+    # member is a 26B MoE.
+    #
+    # That size difference is why the tiers are Gemini rather than Gemma. SMALL
+    # is meant to be cheap and fast -- the spec picked a *4B* model for it -- and
+    # is called once per agent on the request path. Measured on the feature
+    # strategy prompt: gemini-3.1-flash-lite answered in 1.6s and succeeded 3
+    # times in 3; gemma-4-26b-a4b-it took 42s and failed 4 times in 5 against the
+    # 60s timeout, silently degrading every agent to its deterministic fallback.
+    #
+    # Anything here is one env var away, so a self-hosted or Gemma deployment
+    # needs no code change -- which is the property spec 6.3 was protecting.
+    llm_model_small: str = "gemini-3.1-flash-lite"
+    # Unused until the Critic and Chat agents arrive (Sections 9, 10); verified
+    # reachable now so it is not a surprise then. gemini-3.1-pro-preview was the
+    # obvious alternative and is rate-limited to unusable on the free tier.
+    llm_model_large: str = "gemini-3.5-flash"
 
     # Free-tier rate limits, per tier, per the spec's stated figures. These are
     # ALSO flagged unverified there, and the input-TPM cap is the binding

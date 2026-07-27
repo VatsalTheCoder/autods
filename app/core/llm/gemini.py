@@ -1,15 +1,21 @@
-"""The real client: Gemma tiers served by the free Google AI Studio API.
+"""The real client: the two model tiers served by the free Google AI Studio API.
 
 Everything provider-specific lives here and nowhere else. Agents depend on the
 ``LLMClient`` interface; only this file knows the request shape, the token-usage
-field names, or that Gemma has no system role. Swapping to a self-hosted Ollama
-endpoint (the spec's portability fallback) would be a second file implementing
-the same interface, touching no agent.
+field names, or that some models have no system role. Swapping to a self-hosted
+Ollama endpoint (the spec's portability fallback) would be a second file
+implementing the same interface, touching no agent.
+
+Which models sit behind the tiers is a setting, not a fact about this file --
+see ``config.py``, which explains why the defaults are Gemini rather than the
+Gemma names the spec used. The quirks below are kept because they are what makes
+that swap safe: the client works against either family.
 
 Two open-model quirks it absorbs so callers never think about them:
 
 * **No system role.** Gemma rejects a dedicated system turn, so any system
-  messages are folded into the first user turn.
+  messages are folded into the first user turn. Harmless for models that do
+  support one, which is why it is done unconditionally.
 * **Free-tier caps.** Every call clears this tier's ``RateLimiter`` first
   (proactive) and is wrapped in ``retry_on_rate_limit`` (reactive), so the two
   free-tier limits are respected without the caller doing anything.

@@ -93,8 +93,8 @@ services:
       # Overridable per-machine because which models a key can reach varies by
       # account and changes over time. The defaults here mirror config.py, so
       # the committed behaviour is unchanged when .env says nothing.
-      LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemma-3-4b-it}
-      LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemma-3-27b-it}
+      LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemini-3.1-flash-lite}
+      LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemini-3.5-flash}
     ports:
       - "8000:8000"
     volumes:
@@ -144,8 +144,8 @@ services:
       # Overridable per-machine because which models a key can reach varies by
       # account and changes over time. The defaults here mirror config.py, so
       # the committed behaviour is unchanged when .env says nothing.
-      LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemma-3-4b-it}
-      LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemma-3-27b-it}
+      LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemini-3.1-flash-lite}
+      LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemini-3.5-flash}
     volumes:
       - ./app:/code/app
     depends_on:
