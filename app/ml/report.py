@@ -25,6 +25,7 @@ from app.ml.contracts import (
     ClusteringReport,
     EdaReport,
     EvaluationReport,
+    Leaderboard,
     PlannerPlan,
     PreprocessingSpec,
 )
@@ -53,23 +54,26 @@ def build_markdown_report(
     evaluation: EvaluationReport,
     eda: EdaReport | None = None,
     clustering: ClusteringReport | None = None,
+    leaderboard: Leaderboard | None = None,
+    sampling_note: str = "",
 ) -> str:
     """Assemble the job's report from its artifacts.
 
-    ``eda`` and ``clustering`` are optional so the report still builds for a run
-    whose EDA stage was skipped or failed -- it is descriptive, and a missing
-    chart should not cost the reader the model results.
+    ``eda``, ``clustering`` and ``leaderboard`` are optional so the report still
+    builds for a run whose EDA stage was skipped or failed -- it is descriptive,
+    and a missing chart should not cost the reader the model results.
     """
     sections = [
         _heading(filename, evaluation),
         _headline(evaluation),
         _methodology(evaluation),
         _metrics_table(evaluation),
+        _leaderboard_table(leaderboard),
         _folds_table(evaluation),
         _data_quality(cleaning),
         _what_the_data_looks_like(eda),
         _groups(clustering),
-        _preparation(plan, preprocessing),
+        _preparation(plan, preprocessing, sampling_note),
         _caveats(evaluation),
         _limitations(),
     ]
@@ -290,7 +294,45 @@ def _data_quality(cleaning: CleaningReport) -> str:
     return "\n".join(lines)
 
 
-def _preparation(plan: PlannerPlan, preprocessing: PreprocessingSpec) -> str:
+def _leaderboard_table(leaderboard: Leaderboard | None) -> str:
+    """Every candidate that was tried, ranked, with the spread beside the score.
+
+    The spread is in the table rather than a footnote because it is what decides
+    whether the ranking is worth acting on: a 0.02 lead between two models whose
+    folds swing 0.09 is not a lead, and a table of means alone hides that.
+    """
+    if leaderboard is None or not leaderboard.entries:
+        return ""
+
+    metric = _label(leaderboard.primary_metric)
+    lines = [
+        "## Models compared",
+        "",
+        f"| Rank | Model | {metric} | Spread across folds | Time |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for entry in leaderboard.entries:
+        if entry.error:
+            lines.append(f"| {entry.rank} | {entry.model_name} | — | — | could not be trained |")
+            continue
+        lines.append(
+            f"| {entry.rank} | {entry.model_name} | {entry.score:.3f} | "
+            f"± {entry.std:.3f} | {entry.fit_seconds:.1f}s |"
+        )
+
+    lines.append("")
+    lines.append(
+        f"All {len(leaderboard.entries)} models were scored on the same "
+        f"{leaderboard.n_folds} folds, so the ranking compares like with like."
+    )
+    if leaderboard.resampling != "none":
+        lines.append(f"Class balancing: {leaderboard.resampling}.")
+    return "\n".join(lines)
+
+
+def _preparation(
+    plan: PlannerPlan, preprocessing: PreprocessingSpec, sampling_note: str = ""
+) -> str:
     lines = ["## How the data was prepared", ""]
 
     if preprocessing.numeric_columns:
@@ -307,9 +349,58 @@ def _preparation(plan: PlannerPlan, preprocessing: PreprocessingSpec) -> str:
         lines.append("- Left out of the model for now:")
         lines.extend(f"  - `{c.name}` — {c.reason}" for c in preprocessing.unhandled_columns)
 
-    source = "chosen by the planning model" if plan.source == "llm" else "the built-in defaults"
+    if preprocessing.ordinal_columns:
+        lines.append(
+            f"- **{_count(len(preprocessing.ordinal_columns), 'ordered column')}**: "
+            "encoded in rank order rather than as unrelated labels"
+        )
+    if preprocessing.datetime_columns:
+        lines.append(
+            f"- **{_count(len(preprocessing.datetime_columns), 'date column')}**: "
+            "split into calendar features (year, month, day, weekday, hour)"
+        )
+    if preprocessing.text_columns:
+        lines.append(
+            f"- **{_count(len(preprocessing.text_columns), 'high-variety column')}**: "
+            "replaced with how often each value occurs, learned per fold"
+        )
+    if preprocessing.feature_selection:
+        lines.append(f"- **Feature selection**: {preprocessing.feature_selection}")
+
+    # What the pipeline decided *not* to do. A run that silently does less is an
+    # optimisation; one that says which steps it routed around is a decision the
+    # reader can disagree with (spec 11).
+    turned_off = [
+        label
+        for label, on in (
+            ("oversampling the rare outcome", plan.use_smote),
+            ("selecting a subset of features", plan.run_feature_selection),
+            ("training on a sample of the rows", plan.run_sampling),
+        )
+        if not on
+    ]
+    if turned_off:
+        lines.append("")
+        lines.append(f"Steps not used on this dataset: {', '.join(turned_off)}.")
+    if sampling_note:
+        lines.append("")
+        lines.append(sampling_note)
+
+    # Both halves have to read as a sentence. The LLM branch had never actually
+    # run before Section 7 was tested against a live model, and produced
+    # "came from chosen by the planning model".
+    source = (
+        "were chosen by the planning model"
+        if plan.source == "llm"
+        else "came from the built-in defaults"
+    )
     lines.append("")
-    lines.append(f"Preparation steps came from {source}.")
+    lines.append(f"Preparation steps {source}.")
+    if preprocessing.strategy_source == "llm":
+        lines.append(
+            "Per-column preparation was chosen by the feature strategy model and "
+            "checked against the real columns before being built."
+        )
     if plan.rationale:
         lines.append(f"> {plan.rationale}")
     return "\n".join(lines)

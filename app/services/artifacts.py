@@ -48,8 +48,16 @@ CLEANED_DATASET_ARTIFACT = "cleaned_dataset.csv"
 # (``target_distribution.png`` and friends); these two index them.
 EDA_ARTIFACT = "eda_report.json"
 CLUSTERING_ARTIFACT = "clustering_report.json"
+# Section 7. Two files rather than one because they answer different questions:
+# the feature report is *the decision* the LLM made and what code did with it,
+# the preprocessing report is *what was built*. Keeping them apart is what lets a
+# reader diff the request against the result (spec 7.6).
+FEATURE_ARTIFACT = "feature_report.json"
 PREPROCESSING_ARTIFACT = "preprocessing_report.json"
 PREPROCESSOR_ARTIFACT = "preprocessing_pipeline.pkl"
+# Section 7. The ranking of the whole roster; ``evaluation_report.json`` stays
+# the detailed account of the winner alone (spec 7.8).
+LEADERBOARD_ARTIFACT = "leaderboard.json"
 EVALUATION_ARTIFACT = "evaluation_report.json"
 REPORT_ARTIFACT = "report.md"
 

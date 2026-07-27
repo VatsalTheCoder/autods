@@ -63,6 +63,25 @@ class PlannerPlan(BaseModel):
         description="Whether looking for natural groupings is worthwhile here.",
     )
 
+    # ---- Section 7: the optional steps the graph branches around -------------
+    # These are the fields spec 7.3 has the Planner decide and LangGraph's
+    # conditional edges consume. Each one can turn a node off entirely, and a
+    # node that is turned off is marked SKIPPED rather than silently absent --
+    # which is the visible half of the "dynamic orchestration" claim (spec 11).
+
+    use_smote: bool = Field(
+        default=False,
+        description="Oversample the minority class inside each training fold.",
+    )
+    run_feature_selection: bool = Field(
+        default=False,
+        description="Keep only the strongest features rather than all of them.",
+    )
+    run_sampling: bool = Field(
+        default=False,
+        description="Train on a random subset because the dataset is very large.",
+    )
+
     rationale: str = Field(default="", description="One or two sentences on why.")
 
     # Whether the LLM was actually consulted. The pipeline runs identically
@@ -106,6 +125,88 @@ class CleaningReport(BaseModel):
     missing_values_left_to_the_pipeline: dict[str, int] = Field(default_factory=dict)
 
 
+# ---- Feature strategy (Section 7) -------------------------------------------
+#
+# The per-column decisions the LLM is allowed to make. These are deliberately
+# closed ``Literal`` sets rather than free text: an LLM that can only answer with
+# one of five words cannot ask for a transformation the code has no way to build,
+# and Pydantic rejects anything outside the set before it reaches a pipeline.
+# This is the whole reason the agent emits a table of choices instead of code.
+
+# What the column *is*, which decides which recipe it gets built into.
+ColumnRole = Literal["numeric", "categorical", "ordinal", "datetime", "text", "drop"]
+ImputeStrategy = Literal["median", "mean", "most_frequent", "constant", "none"]
+EncodeStrategy = Literal["onehot", "ordinal", "frequency", "none"]
+ScaleStrategy = Literal["standard", "minmax", "none"]
+
+
+class ColumnStrategy(BaseModel):
+    """How one column should be prepared -- the LLM's answer for a single column."""
+
+    column: str
+    role: ColumnRole
+    impute: ImputeStrategy = "none"
+    encode: EncodeStrategy = "none"
+    scale: ScaleStrategy = "none"
+
+    # Only meaningful when ``role`` is ``ordinal``: the categories from lowest to
+    # highest. This is the one place the LLM contributes knowledge the data does
+    # not contain -- that "small" precedes "medium" precedes "large" is a fact
+    # about English, not a fact recoverable from the column. Validated against the
+    # values actually present before it is used.
+    ordinal_order: list[str] = Field(default_factory=list)
+
+    rationale: str = ""
+
+
+class StrategyOverride(BaseModel):
+    """A decision the code refused to carry out, and what it did instead.
+
+    The counterpart to schema detection validating the LLM's target against the
+    real columns, and to the planner's clustering method being overridden when the
+    data cannot support it. Recorded rather than silently applied, because an
+    artifact that showed the LLM's request while the pipeline ran something else
+    would be a lie about how the model was built.
+    """
+
+    column: str
+    field: str
+    requested: str
+    applied: str
+    reason: str
+
+
+class FeatureStrategy(BaseModel):
+    """``feature_report.json`` -- what was asked for, what was allowed, what ran.
+
+    Half of spec 7.6's output (the other half is the unfitted pickle). It exists
+    as its own artifact rather than being folded into the preprocessing report
+    because the two answer different questions: this one is *the decision*, and
+    ``preprocessing_report.json`` is *what was built from it*. Keeping them apart
+    is what makes the "LLM decides, code executes" split checkable from outside --
+    a reader can diff the request against the result.
+    """
+
+    columns: list[ColumnStrategy] = Field(default_factory=list)
+
+    # Columns the LLM invented. The spec's requirement is that these are rejected,
+    # and naming them is how a reader can tell rejection happened rather than the
+    # model simply not hallucinating on this run.
+    rejected_columns: list[str] = Field(default_factory=list)
+    # Real columns the LLM said nothing about; they fall back to the deterministic
+    # dtype-based default, which is exactly the Section 5 behaviour.
+    defaulted_columns: list[str] = Field(default_factory=list)
+    overrides: list[StrategyOverride] = Field(default_factory=list)
+
+    # "llm" only when the model was consulted *and* replied usably. A strategy
+    # that fell back to defaults must not be recorded as an LLM decision.
+    source: Literal["llm", "hardcoded"] = "hardcoded"
+    rationale: str = ""
+
+    def for_column(self, name: str) -> ColumnStrategy | None:
+        return next((c for c in self.columns if c.column == name), None)
+
+
 # ---- Preprocessing (the recipe, not the meal) -------------------------------
 
 
@@ -121,17 +222,30 @@ class PreprocessingSpec(BaseModel):
 
     numeric_columns: list[str] = Field(default_factory=list)
     categorical_columns: list[str] = Field(default_factory=list)
-    # Columns cleaning kept but the Section 5 recipe has no strategy for
-    # (datetime, free text). Named rather than silently ignored so the gap is
-    # visible; Section 7 gives them real handling.
+    # Section 7 gives these three real handling; before it they were listed under
+    # ``unhandled_columns`` as a stated gap.
+    ordinal_columns: list[str] = Field(default_factory=list)
+    datetime_columns: list[str] = Field(default_factory=list)
+    text_columns: list[str] = Field(default_factory=list)
+    # Columns that still get no strategy -- now only the ones something explicitly
+    # chose to drop, rather than whole dtypes the recipe could not express.
     unhandled_columns: list[DroppedColumn] = Field(default_factory=list)
 
     numeric_strategy: str = ""
     categorical_strategy: str = ""
+    # Per-column detail, in the order the transformer applies it. The summary
+    # strings above survive for the Markdown report and the Results page, which
+    # want one line rather than a table.
+    column_strategies: list[ColumnStrategy] = Field(default_factory=list)
 
-    # "hardcoded" in Section 5 -- the LLM does not choose strategies until
-    # Section 7 (build-plan), and the report should say so plainly.
+    # "hardcoded" when the dtype-based defaults built the recipe, "llm" when the
+    # feature strategy agent chose. Section 5 could only ever say the former.
     strategy_source: Literal["hardcoded", "llm"] = "hardcoded"
+
+    # Set when the planner asked for feature selection: the selector is a *step in
+    # the pipeline*, so it is fitted per fold like everything else. Recorded here
+    # because "how many features survived" is otherwise invisible from the report.
+    feature_selection: str = ""
 
 
 # ---- Evaluation -------------------------------------------------------------
@@ -185,6 +299,55 @@ class EvaluationReport(BaseModel):
     def primary_score(self) -> float | None:
         summary = self.metrics.get(self.primary_metric)
         return summary.mean if summary else None
+
+
+# ---- The leaderboard (Section 7) --------------------------------------------
+
+
+class LeaderboardEntry(BaseModel):
+    """One model's cross-validated result, as it appears in the ranking."""
+
+    rank: int
+    model_name: str
+    # The metric the ranking is on -- named per row so a reader never has to
+    # infer which number the order came from.
+    primary_metric: str
+    score: float
+    # Spread across folds. It belongs next to the score because it is what says
+    # whether a lead is real: 0.81 ± 0.02 beating 0.79 ± 0.09 is a different
+    # claim from the means alone.
+    std: float
+    metrics: dict[str, MetricSummary] = Field(default_factory=dict)
+    fit_seconds: float = 0.0
+    # Set when a candidate could not be trained at all. A named failure is more
+    # useful than a model quietly missing from the table.
+    error: str = ""
+
+
+class Leaderboard(BaseModel):
+    """``leaderboard.json`` -- every candidate, ranked, on identical folds.
+
+    The comparison is only meaningful because every model in it saw exactly the
+    same splits, built from the same seed, behind the same unfitted recipe. That
+    is why the roster is cross-validated in one pass here rather than each model
+    being run separately and the numbers collected afterwards.
+    """
+
+    task_type: TaskType
+    target_column: str
+    primary_metric: str
+    n_folds: int
+    cv_strategy: str
+    entries: list[LeaderboardEntry] = Field(default_factory=list)
+
+    # Whether resampling was part of every fold's fit, and why. Recorded on the
+    # leaderboard rather than only in the plan because it changes what the scores
+    # mean, and a reader comparing two runs needs to see it next to them.
+    resampling: str = ""
+    warnings: list[str] = Field(default_factory=list)
+
+    def winner(self) -> LeaderboardEntry | None:
+        return next((e for e in self.entries if not e.error), None)
 
 
 # ---- EDA (Section 6) --------------------------------------------------------

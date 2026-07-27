@@ -39,6 +39,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
+from app.ml.contracts import ColumnStrategy, FeatureStrategy
 from app.ml.modeling import cross_validate_model
 from app.ml.preprocessing import build_preprocessor
 
@@ -223,6 +224,74 @@ class TestRecipeLeavesPreprocessingUnfitted:
             for _, inner in step.steps:
                 with pytest.raises(NotFittedError):
                     check_is_fitted(inner)
+
+    def test_the_section_7_steps_are_unfitted_too(self):
+        """The new transformers are where an unfitted recipe could quietly regress.
+
+        ``FrequencyEncoder`` learns a distribution and ``SelectKBest`` learns
+        which columns beat the rest -- both are fitted state, and both are new in
+        this section. Naming them here means a future change that computed either
+        one up front fails a test rather than silently inflating every score.
+        """
+        frame = pd.DataFrame(
+            {
+                "note": [f"n{i}" for i in range(N_ROWS)],
+                "signed_up": pd.to_datetime(["2024-01-01"] * N_ROWS),
+                "x1": np.arange(float(N_ROWS)),
+                "churn": ["yes", "no"] * (N_ROWS // 2),
+            }
+        )
+        pipeline = build_preprocessor(frame, target="churn", select_k=2).transformer
+
+        with pytest.raises(NotFittedError):
+            check_is_fitted(pipeline.named_steps["select"])
+        for _, step, _ in pipeline.named_steps["columns"].transformers:
+            for _, inner in step.steps:
+                with pytest.raises(NotFittedError):
+                    check_is_fitted(inner)
+
+
+class TestFrequenciesComeFromTheFoldOnly:
+    """The Section 7 step most able to leak, checked end to end.
+
+    A frequency map is the kind of feature that looks like good engineering and
+    leaks completely: build it over the whole dataset and every training row
+    carries a summary of the test fold. The encoder is a pipeline step precisely
+    so this cannot happen, and this is the test that says so.
+    """
+
+    def test_the_encoder_is_refitted_for_every_fold(self):
+        frame = pd.DataFrame(
+            {
+                "city": (["London"] * 60) + (["Leeds"] * 40),
+                "x1": np.arange(float(N_ROWS)),
+                "churn": ["yes", "no"] * (N_ROWS // 2),
+            }
+        )
+        strategy = FeatureStrategy(
+            columns=[
+                ColumnStrategy(
+                    column="city", role="text", impute="most_frequent", encode="frequency"
+                ),
+                ColumnStrategy(column="x1", role="numeric", impute="median", scale="standard"),
+            ],
+            source="llm",
+        )
+        preprocessor = build_preprocessor(frame, target="churn", strategy=strategy).transformer
+
+        result = cross_validate_model(
+            frame,
+            target="churn",
+            task_type="classification",
+            preprocessor=preprocessor,
+            cv_folds=N_FOLDS,
+        )
+
+        # The template is what proves it: had the frequencies been computed once,
+        # up front, they would be sitting on this object now.
+        assert len(result.folds) == N_FOLDS
+        with pytest.raises(NotFittedError):
+            check_is_fitted(preprocessor)
 
     def test_survives_a_pickle_round_trip_still_unfitted(self, frame):
         """The stored artifact is checkable, not just the in-memory object.

@@ -23,6 +23,8 @@ from app.ml.contracts import (
     EdaReport,
     EvaluationReport,
     FoldScore,
+    Leaderboard,
+    LeaderboardEntry,
     MetricSummary,
     NumericSummary,
     PlannerPlan,
@@ -366,3 +368,169 @@ def test_the_report_is_valid_markdown_structure(markdown):
     assert markdown.count("\n# ") == 0  # exactly one top-level heading
     assert markdown.count("## ") >= 5
     assert "\n\n\n" not in markdown
+
+
+class TestTheLeaderboard:
+    """Section 7: the report should show what was compared, not just what won."""
+
+    @pytest.fixture
+    def leaderboard(self) -> Leaderboard:
+        return Leaderboard(
+            task_type="classification",
+            target_column="churn",
+            primary_metric="f1_macro",
+            n_folds=5,
+            cv_strategy="StratifiedKFold",
+            entries=[
+                LeaderboardEntry(
+                    rank=1,
+                    model_name="LightGBM",
+                    primary_metric="f1_macro",
+                    score=0.812,
+                    std=0.021,
+                    fit_seconds=1.4,
+                ),
+                LeaderboardEntry(
+                    rank=2,
+                    model_name="RandomForest",
+                    primary_metric="f1_macro",
+                    score=0.790,
+                    std=0.090,
+                    fit_seconds=2.2,
+                ),
+                LeaderboardEntry(
+                    rank=3,
+                    model_name="XGBoost",
+                    primary_metric="f1_macro",
+                    score=float("nan"),
+                    std=0.0,
+                    error="it exploded",
+                ),
+            ],
+            resampling="SMOTE, applied inside each training fold only",
+        )
+
+    @pytest.fixture
+    def with_board(self, cleaning, preprocessing, evaluation, leaderboard) -> str:
+        return build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm", use_smote=True),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            leaderboard=leaderboard,
+        )
+
+    def test_every_candidate_is_listed(self, with_board):
+        for name in ("LightGBM", "RandomForest", "XGBoost"):
+            assert name in with_board
+
+    def test_the_spread_is_beside_the_score_not_in_a_footnote(self, with_board):
+        """0.79 ± 0.09 losing to 0.81 ± 0.02 is a judgement the reader must make."""
+        assert "± 0.021" in with_board
+        assert "± 0.090" in with_board
+
+    def test_a_failed_candidate_says_so_rather_than_showing_a_score(self, with_board):
+        assert "could not be trained" in with_board
+
+    def test_the_fair_comparison_is_stated(self, with_board):
+        assert "same 5 folds" in with_board
+
+    def test_resampling_is_recorded_next_to_the_scores(self, with_board):
+        assert "SMOTE" in with_board
+
+    def test_a_run_without_a_leaderboard_still_builds(self, markdown):
+        """Older runs, and any run whose modelling produced only one result."""
+        assert "## Models compared" not in markdown
+
+
+class TestSkippedStepsAreReported:
+    """A run that did less should say what it chose not to do (spec 11)."""
+
+    def test_the_steps_that_were_turned_off_are_named(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm", use_smote=False, run_feature_selection=False),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "Steps not used on this dataset" in report
+        assert "oversampling the rare outcome" in report
+
+    def test_a_step_that_ran_is_not_listed_as_unused(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm", use_smote=True),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "oversampling the rare outcome" not in report
+
+    def test_sampling_is_explained_where_it_happened(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm", run_sampling=True),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            sampling_note="Trained on a random sample of 20,000 rows drawn from 500,000.",
+        )
+        assert "random sample of 20,000 rows" in report
+
+    def test_the_new_column_kinds_are_described(self, cleaning, evaluation):
+        spec = PreprocessingSpec(
+            numeric_columns=["age"],
+            ordinal_columns=["size"],
+            datetime_columns=["signed_up"],
+            text_columns=["user_ref"],
+            numeric_strategy="median imputation, then standard scaling",
+            strategy_source="llm",
+        )
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm"),
+            cleaning=cleaning,
+            preprocessing=spec,
+            evaluation=evaluation,
+        )
+        assert "rank order" in report
+        assert "calendar features" in report
+        assert "how often each value occurs" in report
+
+    def test_an_llm_chosen_strategy_says_it_was_checked(self, cleaning, evaluation):
+        spec = PreprocessingSpec(numeric_columns=["age"], strategy_source="llm")
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm"),
+            cleaning=cleaning,
+            preprocessing=spec,
+            evaluation=evaluation,
+        )
+        assert "checked against the real columns" in report
+
+
+class TestBothPlanSourcesReadAsSentences:
+    """The LLM branch of this line was unreachable until a live model was used."""
+
+    def test_the_default_branch_reads_correctly(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="c.csv",
+            plan=PlannerPlan(source="default"),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "Preparation steps came from the built-in defaults." in report
+
+    def test_the_llm_branch_reads_correctly(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="c.csv",
+            plan=PlannerPlan(source="llm"),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "Preparation steps were chosen by the planning model." in report
+        assert "came from chosen by" not in report

@@ -1,10 +1,19 @@
 """Planner -- the LLM agent that decides which optional steps run (spec 7.3).
 
-Minimal on purpose. In Section 5 the plan is two booleans consumed by cleaning,
-which is enough to prove the shape of the thing: an LLM makes a decision, that
-decision is validated into a Pydantic object, and deterministic code downstream
-obeys it (spec 6.2 -- "LLM decides, code executes"). Sections 7 and 8 widen the
-plan to SMOTE and the model roster, once there is more than one option to pick.
+Section 5 started this as two booleans consumed by cleaning, which was enough to
+prove the shape of the thing: an LLM makes a decision, that decision is validated
+into a Pydantic object, and deterministic code downstream obeys it (spec 6.2 --
+"LLM decides, code executes").
+
+Section 7 is where the plan starts to *change the shape of the run*. Three of its
+flags -- oversampling, feature selection, sampling -- are read by LangGraph's
+conditional edges, so a plan can route the graph past a node entirely. That is
+the spec's "dynamic orchestration" (11), and it is why a skipped node is marked
+SKIPPED rather than left pending: the difference between "this run did not need
+that step" and "this run has not got there yet" is the whole claim.
+
+Every field still has a workable default, so the routing degrades to a sensible
+fixed pipeline rather than a broken one.
 
 Like schema detection, the LLM pass is **best-effort** -- but for a different
 reason. Schema detection degrades because it runs in the request path; this
@@ -30,7 +39,7 @@ AGENT_NAME = "planner"
 _SYSTEM = (
     "You are planning how a tabular dataset should be prepared and explored "
     "before a model is trained on it. You will be given a summary of its "
-    "columns. Decide four things.\n"
+    "columns. Decide seven things.\n"
     "1. Whether exactly-repeated rows should be removed -- normally yes, but say "
     "no if repeated rows are plausibly meaningful records rather than duplicates.\n"
     "2. Whether columns that are mostly empty should be dropped rather than "
@@ -40,6 +49,14 @@ _SYSTEM = (
     "be meaningless.\n"
     "4. Which clustering method suits the data: 'kmeans' when every feature is "
     "numeric, 'kprototypes' when there are categorical columns as well.\n"
+    "5. Whether the rare outcome should be oversampled during training -- yes "
+    "when one class of the target is much rarer than the others, no for a "
+    "balanced target or a numeric one.\n"
+    "6. Whether only the strongest features should be kept -- yes for a dataset "
+    "with many columns relative to its rows, no when there are few columns and "
+    "each is likely to matter.\n"
+    "7. Whether to train on a random sample rather than every row -- yes only "
+    "for a very large dataset, no otherwise.\n"
     "Give a one or two sentence rationale. Do not suggest any other steps."
 )
 
@@ -57,7 +74,7 @@ def make_plan(
     """
     if client is None:
         logger.info("Planner: no LLM configured, using default plan")
-        return PlannerPlan(rationale="No LLM available; used default preparation steps.")
+        return _default_plan(report, "No LLM available; used default preparation steps.")
 
     try:
         result = structured_complete(
@@ -69,10 +86,10 @@ def make_plan(
         )
     except LLMError as exc:
         logger.warning("Planner LLM call failed, using default plan: %s", exc)
-        return PlannerPlan(rationale=f"Planning fell back to defaults: {exc}")
+        return _default_plan(report, f"Planning fell back to defaults: {exc}")
     except Exception:  # pragma: no cover - defensive; a plan must never fail a job
         logger.exception("Unexpected error while planning; using default plan")
-        return PlannerPlan(rationale="Planning fell back to defaults after an unexpected error.")
+        return _default_plan(report, "Planning fell back to defaults after an unexpected error.")
 
     # The model does not get to set ``source`` -- if it hallucinates the field we
     # would be recording a default plan as an LLM decision. Stamped here, where
@@ -87,6 +104,25 @@ def make_plan(
     return plan
 
 
+def _default_plan(report: SchemaReport, rationale: str) -> PlannerPlan:
+    """The plan used when the model was not consulted or could not answer.
+
+    Not simply ``PlannerPlan()``. Schema detection already measured whether the
+    target is skewed (spec 7.1), and that measurement is a better basis for the
+    SMOTE decision than a constant is -- so the deterministic path reaches the
+    same conclusion an LLM would on the one flag where the data settles it.
+
+    The other two optional steps stay off by default. Both are judgement calls
+    about whether a dataset is *large* or *wide*, with no threshold that is right
+    across datasets, and switching them on by default would mean quietly
+    discarding rows or columns on a run where nothing asked for it.
+    """
+    imbalanced = bool(report.class_balance and report.class_balance.imbalanced)
+    if imbalanced:
+        rationale = f"{rationale} The target is imbalanced, so oversampling is on."
+    return PlannerPlan(use_smote=imbalanced, rationale=rationale)
+
+
 def _dataset_prompt(report: SchemaReport) -> str:
     """A compact dataset summary -- the same terseness discipline as schema detection.
 
@@ -97,9 +133,17 @@ def _dataset_prompt(report: SchemaReport) -> str:
     lines = [
         f"Dataset: {report.n_rows} rows, {report.n_columns} columns.",
         f"Target: {report.suggested_target or 'unknown'} ({report.task_type or 'unknown'} task).",
-        "",
-        "Columns:",
     ]
+    # The imbalance measurement drives the oversampling decision, so it is the
+    # one number here that is not merely shape. Without it the model would be
+    # guessing at the very thing schema detection already established.
+    if report.class_balance:
+        balance = report.class_balance
+        lines.append(
+            f"Target balance: {balance.imbalance_ratio:.1f}:1 between the commonest "
+            f"and rarest class ({'imbalanced' if balance.imbalanced else 'balanced'})."
+        )
+    lines += ["", "Columns:"]
     for col in report.columns:
         lines.append(
             f"- {col.name} (type={col.semantic_type}, unique={col.n_unique}, "

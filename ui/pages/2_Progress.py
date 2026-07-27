@@ -72,8 +72,15 @@ top[1].metric("Target", job.get("target_column") or "—")
 top[2].metric("Task", job.get("task_type") or "—")
 
 if runs:
-    done = sum(1 for r in runs if r["status"] == "completed")
-    st.progress(done / len(runs), text=f"{done} / {len(runs)} steps complete")
+    # A skipped step is settled, not outstanding. Counting only "completed"
+    # would leave a finished run whose planner turned two steps off stuck at
+    # 8/10 forever, which reads as a stall rather than as a decision.
+    done = sum(1 for r in runs if r["status"] in ("completed", "skipped"))
+    skipped = sum(1 for r in runs if r["status"] == "skipped")
+    label = f"{done} / {len(runs)} steps settled"
+    if skipped:
+        label += f" ({skipped} skipped by the plan)"
+    st.progress(done / len(runs), text=label)
 
 if status == "failed":
     st.error(f"Pipeline failed: {job.get('error_message') or 'unknown error'}")
@@ -89,7 +96,11 @@ else:
     for run in runs:
         icon = NODE_ICON.get(run["status"], "•")
         line = f"{icon} **{run['name']}** — {run['status']}"
-        if run["status"] == "failed" and run.get("error_message"):
+        # A skipped step carries its reason in the same column a failure does;
+        # the status beside it is what says which of the two happened. Showing
+        # the reason is the whole point of marking a step skipped rather than
+        # dropping it from the list -- the pipeline adapted, and says how.
+        if run["status"] in ("failed", "skipped") and run.get("error_message"):
             line += f" — {run['error_message']}"
         st.markdown(line)
 
