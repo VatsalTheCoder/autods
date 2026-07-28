@@ -13,7 +13,23 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # Section 10 stores embeddings here rather than running a seventh container
+    # for a vector store. The spec locks ChromaDB and documents pgvector as the
+    # fallback; this takes the fallback deliberately, because Section 11 has to
+    # give ChromaDB a persistent EBS volume of its own and pgvector removes that
+    # problem by removing the service. Same Postgres 16, plus the extension.
+    #
+    # UPGRADING AN EXISTING VOLUME: this image is Debian-based where the previous
+    # postgres:16-alpine was musl, and the two sort text differently. Every btree
+    # index over a text column is built in collation order, so after the swap an
+    # indexed equality lookup silently misses rows that a sequential scan still
+    # finds -- no error, no warning, just artifacts that appear in a listing and
+    # 404 when fetched. Run once against a pre-existing volume:
+    #
+    #     docker compose exec postgres psql -U autods -d autods -c 'REINDEX DATABASE autods;'
+    #
+    # A volume created fresh under this image is unaffected.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: autods
       POSTGRES_PASSWORD: autods

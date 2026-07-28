@@ -121,6 +121,10 @@ class PipelineState(TypedDict, total=False):
 
     report_markdown: str
 
+    # Section 10. How many passages the run was indexed into; 0 means the chat
+    # has nothing to answer from.
+    chunks_indexed: int
+
 
 # The pipeline, in order. Section 4 chose these names for the vertical slice so
 # that Section 5 could swap sleeping placeholders for real work without touching
@@ -161,4 +165,10 @@ PIPELINE_NODES: list[str] = [
     # the executive summary is exactly where a concern needs to appear.
     "critic",
     "report",
+    # Section 10. Embeds the run's written output so the chat has something to
+    # retrieve (spec 7.13, and the "Dataset Chat Initialization" step in the
+    # spec's own flow). Last, because it indexes the report the previous node
+    # writes -- and optional, because a run that cannot be indexed is still a
+    # complete analysis with a readable report. It just cannot be asked about.
+    "chat_index",
 ]

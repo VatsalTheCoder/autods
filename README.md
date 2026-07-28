@@ -81,7 +81,7 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 - [x] **Section 7** — Feature engineering
 - [x] **Section 8** — Final training, SHAP, prediction *(milestone M4)*
 - [x] **Section 9** — Critic and report *(milestone M5)*
-- [ ] **Section 10** — RAG chat
+- [x] **Section 10** — RAG chat *(milestone M6)*
 - [ ] **Section 11** — AWS deployment
 - [ ] **Section 12** — Testing and documentation
 

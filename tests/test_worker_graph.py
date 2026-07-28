@@ -26,7 +26,8 @@ def test_pipeline_is_the_expected_sequence():
     # Section 8 adds the refit and its explanation between evaluation and the
     # report, so the report is written with both of them available to describe.
     # Section 9 puts the critic immediately before the report, so the report can
-    # reflect the review rather than append it.
+    # reflect the review rather than append it. Section 10 adds indexing at the
+    # very end, over the report the previous node has just written.
     assert PIPELINE_NODES == [
         "planner",
         "cleaning",
@@ -41,6 +42,7 @@ def test_pipeline_is_the_expected_sequence():
         "explainability",
         "critic",
         "report",
+        "chat_index",
     ]
 
 
@@ -81,3 +83,9 @@ def test_the_report_is_written_after_the_review_of_it():
     """
     assert PIPELINE_NODES.index("critic") < PIPELINE_NODES.index("report")
     assert PIPELINE_NODES.index("explainability") < PIPELINE_NODES.index("critic")
+
+
+def test_indexing_happens_after_there_is_something_to_index():
+    """Section 10's node reads the run's written output, so it goes last."""
+    assert PIPELINE_NODES[-1] == "chat_index"
+    assert PIPELINE_NODES.index("report") < PIPELINE_NODES.index("chat_index")

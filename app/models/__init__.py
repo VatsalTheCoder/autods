@@ -6,7 +6,9 @@ reachable from this module will be silently missed by migrations.
 
 from app.models.agent_run import AgentRun, AgentRunStatus
 from app.models.artifact import Artifact, ArtifactKind
+from app.models.chat_message import ChatMessage, ChatRoute
 from app.models.job import Job, JobStatus
+from app.models.run_chunk import RunChunk
 from app.models.token_usage import TokenUsage
 from app.models.user import User
 
@@ -15,8 +17,11 @@ __all__ = [
     "AgentRunStatus",
     "Artifact",
     "ArtifactKind",
+    "ChatMessage",
+    "ChatRoute",
     "Job",
     "JobStatus",
+    "RunChunk",
     "TokenUsage",
     "User",
 ]

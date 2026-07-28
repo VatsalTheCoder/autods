@@ -50,6 +50,14 @@ COPY alembic.ini ./
 RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /code
 USER appuser
 
+# Bake the embedding model into the image (Section 10). fastembed otherwise
+# fetches it on first use, which would put a ~130 MB download inside the first
+# question anyone asks -- and would make the container require network access at
+# query time to answer from data it already has locally. Downloaded as appuser
+# so the cache lands in the home directory the app actually runs from.
+ENV FASTEMBED_CACHE_PATH=/home/appuser/.cache/fastembed
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
