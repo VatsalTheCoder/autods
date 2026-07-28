@@ -21,6 +21,14 @@ from app.core.llm import (
     structured_complete,
     user,
 )
+from app.core.llm.base import RateLimitError, TransientLLMError
+from app.core.llm.structured import structured_complete_tiered
+
+
+class _Simple(BaseModel):
+    """The smallest thing that can come back, for tests about *which model* ran."""
+
+    value: str
 
 
 class Decision(BaseModel):
@@ -165,3 +173,66 @@ class TestUsageAccounting:
         structured_complete(llm, [user("go")], Decision, tier=ModelTier.LARGE)
 
         assert llm.calls[0].tier is ModelTier.LARGE
+
+
+class TestSteppingDownATier:
+    """``structured_complete_tiered`` (spec 6.1, and the free tier's per-model quotas).
+
+    The critic and the report writer are the two large-tier prompts in the
+    project, so the large model's quota is the first to run out. When it does,
+    the choice is between a smaller model's answer and the deterministic
+    fallback -- and the deterministic fallback is precisely the output a reader
+    least wants: a report with no prose, a review that is only threshold checks.
+    """
+
+    def test_the_first_tier_is_used_when_it_works(self):
+        client = FakeLLM(['{"value": "from the large model"}'])
+        result = structured_complete_tiered(
+            client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.SMALL)
+        )
+        assert result.data.value == "from the large model"
+        assert client.calls[0].tier is ModelTier.LARGE
+
+    def test_a_rate_limit_falls_through_to_the_next_tier(self):
+        client = FakeLLM([RateLimitError("429"), '{"value": "from the small model"}'])
+        result = structured_complete_tiered(
+            client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.SMALL)
+        )
+        assert result.data.value == "from the small model"
+        assert client.calls[-1].tier is ModelTier.SMALL
+
+    def test_a_rate_limit_on_every_tier_raises(self):
+        """So the caller can still degrade to its deterministic fallback."""
+        client = FakeLLM([RateLimitError("429"), RateLimitError("429")])
+        with pytest.raises(RateLimitError):
+            structured_complete_tiered(
+                client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.SMALL)
+            )
+
+    def test_a_non_rate_limit_failure_does_not_step_down(self):
+        """A different model will not fix an outage, and trying doubles latency."""
+        client = FakeLLM([TransientLLMError("503"), '{"value": "never reached"}'])
+        with pytest.raises(TransientLLMError):
+            structured_complete_tiered(
+                client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.SMALL)
+            )
+        # The second scripted reply is still queued, which is only true if the
+        # small tier was never attempted.
+        assert client.complete([user("x")]).text == '{"value": "never reached"}'
+
+    def test_usage_is_recorded_for_every_tier_attempted(self):
+        """A run that paid for a rate-limited attempt should show that it did."""
+        recorded = []
+        client = FakeLLM([RateLimitError("429"), '{"value": "ok"}'])
+        structured_complete_tiered(
+            client,
+            [user("hi")],
+            _Simple,
+            tiers=(ModelTier.LARGE, ModelTier.SMALL),
+            on_usage=recorded.append,
+        )
+        assert recorded, "no usage was recorded at all"
+
+    def test_no_tiers_is_a_programming_error(self):
+        with pytest.raises(ValueError, match="at least one tier"):
+            structured_complete_tiered(FakeLLM([]), [user("hi")], _Simple, tiers=())

@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from app.agents.report_writer import write_narrative
 from app.agents.summaries import summarise_run
 from app.core.llm.base import RateLimitError, TransientLLMError
@@ -89,11 +87,30 @@ class TestTheAgent:
         assert narrative.source == "default"
         assert narrative.is_empty()
 
-    @pytest.mark.parametrize(
-        "failure", [RateLimitError("429"), TransientLLMError("503 after retries")]
-    )
-    def test_a_provider_failure_degrades_to_the_plain_report(self, failure):
-        narrative = write_narrative(summarise_run(budget_tokens=6000), client=FakeLLM([failure]))
+    def test_a_provider_failure_degrades_to_the_plain_report(self):
+        """A malformed reply or an outage is not something a smaller model fixes."""
+        narrative = write_narrative(
+            summarise_run(budget_tokens=6000),
+            client=FakeLLM([TransientLLMError("503 after retries")]),
+        )
+        assert narrative.source == "default"
+        assert narrative.is_empty()
+
+    def test_a_rate_limit_steps_down_a_tier_rather_than_giving_up(self):
+        """These two agents are why the large model's quota runs out first.
+
+        Losing the report's prose for the rest of the day because one model's
+        minute-quota was exhausted -- while another sits idle -- is the wrong
+        trade, so a rate limit tries the smaller model before degrading.
+        """
+        client = FakeLLM([RateLimitError("429"), narrative_json()])
+        narrative = write_narrative(summarise_run(budget_tokens=6000), client=client)
+        assert narrative.source == "llm"
+        assert narrative.executive_summary
+
+    def test_a_rate_limit_on_every_tier_still_degrades(self):
+        client = FakeLLM([RateLimitError("429"), RateLimitError("429")])
+        narrative = write_narrative(summarise_run(budget_tokens=6000), client=client)
         assert narrative.source == "default"
         assert narrative.is_empty()
 

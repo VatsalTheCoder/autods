@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from app.agents.critic import measured_findings, review_run
 from app.agents.summaries import summarise_run
 from app.core.llm.base import RateLimitError, TransientLLMError
@@ -266,14 +264,28 @@ class TestDegradingWithoutAModel:
         assert "checklist result" in report.verdict
         assert "no language model was available" in report.verdict
 
-    @pytest.mark.parametrize(
-        "failure", [RateLimitError("429"), TransientLLMError("503 after retries")]
-    )
-    def test_a_provider_failure_keeps_the_measured_findings(self, failure):
+    def test_a_provider_failure_keeps_the_measured_findings(self):
+        """A malformed reply or an outage is not something a smaller model fixes."""
         board = leaderboard_of(("A", 0.81, 0.04), ("B", 0.805, 0.03))
         report = review_run(
-            summary_of(leaderboard=board), leaderboard=board, client=FakeLLM([failure])
+            summary_of(leaderboard=board),
+            leaderboard=board,
+            client=FakeLLM([TransientLLMError("503 after retries")]),
         )
+        assert report.source == "default"
+        assert report.findings
+
+    def test_a_rate_limit_steps_down_a_tier_rather_than_giving_up(self):
+        """A review that is only threshold checks is the thing being avoided."""
+        board = leaderboard_of(("A", 0.81, 0.04), ("B", 0.805, 0.03))
+        client = FakeLLM([RateLimitError("429"), answer_json()])
+        report = review_run(summary_of(leaderboard=board), leaderboard=board, client=client)
+        assert report.source == "llm"
+
+    def test_a_rate_limit_on_every_tier_still_degrades(self):
+        board = leaderboard_of(("A", 0.81, 0.04), ("B", 0.805, 0.03))
+        client = FakeLLM([RateLimitError("429"), RateLimitError("429")])
+        report = review_run(summary_of(leaderboard=board), leaderboard=board, client=client)
         assert report.source == "default"
         assert report.findings
 

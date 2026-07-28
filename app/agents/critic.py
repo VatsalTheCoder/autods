@@ -34,7 +34,7 @@ import logging
 
 from app.agents.summaries import RunSummary
 from app.core.llm.base import LLMClient, LLMError, ModelTier, UsageCallback, system, user
-from app.core.llm.structured import structured_complete
+from app.core.llm.structured import structured_complete_tiered
 from app.ml.contracts import (
     ClusteringReport,
     CriticFinding,
@@ -125,13 +125,16 @@ def review_run(
         return report
 
     try:
-        result = structured_complete(
+        result = structured_complete_tiered(
             client,
             [system(_SYSTEM), user(_prompt(summary, measured))],
             _CriticAnswer,
-            # The large tier: this is the reasoning task the spec reserves it for
-            # (6.1), and the one place a bigger model earns its latency.
-            tier=ModelTier.LARGE,
+            # The large tier first: this is the reasoning task the spec reserves
+            # it for (6.1), and the one place a bigger model earns its latency.
+            # Stepping down to the small one when rate limited, because the
+            # alternative is a review that is only threshold checks -- and on the
+            # free tier the large model's quota is the first to run out.
+            tiers=(ModelTier.LARGE, ModelTier.SMALL),
             on_usage=on_usage,
         )
     except LLMError as exc:

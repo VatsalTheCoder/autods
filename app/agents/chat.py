@@ -49,7 +49,7 @@ from app.core.llm.base import (
     system,
     user,
 )
-from app.core.llm.structured import structured_complete
+from app.core.llm.structured import structured_complete, structured_complete_tiered
 from app.ml.pandas_tool import UnsafeExpression, run_query
 from app.models.chat_message import ChatRoute
 from app.services.retrieval import Retrieved
@@ -273,31 +273,31 @@ def _answer_with_passages(
     # the large tier's quota is the first thing to run out, and a chat that stops
     # working for the rest of the day is worse than one that answers slightly
     # less fluently from the same passages.
-    for tier in (ModelTier.LARGE, ModelTier.SMALL):
-        try:
-            result = structured_complete(
-                client, messages, GroundedAnswer, tier=tier, on_usage=on_usage
-            )
-            break
-        except RateLimitError as exc:
-            if tier is ModelTier.SMALL:
-                logger.warning("Chat answering rate limited on every tier: %s", exc)
-                return ChatAnswer(
-                    answer=(
-                        "The model is rate limited at the moment, so this answer "
-                        "could not be written. Please try again shortly."
-                    ),
-                    route=ChatRoute.RAG,
-                    grounding=f"rate-limited: {exc}",
-                )
-            logger.info("Chat answering fell back to the small tier: %s", exc)
-        except LLMError as exc:
-            logger.warning("Chat answering failed: %s", exc)
-            return ChatAnswer(
-                answer="The answer could not be written just now. Please try again.",
-                route=ChatRoute.RAG,
-                grounding=f"answer-error: {exc}",
-            )
+    try:
+        result = structured_complete_tiered(
+            client,
+            messages,
+            GroundedAnswer,
+            tiers=(ModelTier.LARGE, ModelTier.SMALL),
+            on_usage=on_usage,
+        )
+    except RateLimitError as exc:
+        logger.warning("Chat answering rate limited on every tier: %s", exc)
+        return ChatAnswer(
+            answer=(
+                "The model is rate limited at the moment, so this answer "
+                "could not be written. Please try again shortly."
+            ),
+            route=ChatRoute.RAG,
+            grounding=f"rate-limited: {exc}",
+        )
+    except LLMError as exc:
+        logger.warning("Chat answering failed: %s", exc)
+        return ChatAnswer(
+            answer="The answer could not be written just now. Please try again.",
+            route=ChatRoute.RAG,
+            grounding=f"answer-error: {exc}",
+        )
 
     grounded = result.data
     cited = grounded.cited_chunks or [passage.chunk_id for passage in passages]
