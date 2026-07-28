@@ -49,6 +49,13 @@ dependencies = [
     # TreeExplainer covers RF, XGBoost and LightGBM alike (Section 8).
     "xgboost>=2.1",
     "lightgbm>=4.5",
+    # Section 8: the explainability claim the project is sold on (spec 7.10).
+    # TreeExplainer is exact for the three tree models in the roster -- it reads
+    # the fitted trees rather than sampling perturbations, so the explanation is
+    # the model's actual decomposition and not an approximation of it. The linear
+    # members go through LinearExplainer, which is why the node dispatches on
+    # model family instead of reaching for one explainer.
+    "shap>=0.46",
 ]
 
 [project.optional-dependencies]

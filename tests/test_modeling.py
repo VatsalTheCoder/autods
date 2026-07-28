@@ -14,7 +14,13 @@ import pandas as pd
 import pytest
 from imblearn.pipeline import Pipeline as ImbPipeline
 
-from app.ml.modeling import ModelingError, build_pipeline, cross_validate_model
+from app.ml.modeling import (
+    ModelingError,
+    build_pipeline,
+    cross_validate_model,
+    preprocessing_of,
+    run_leaderboard,
+)
 from app.ml.preprocessing import build_preprocessor
 
 
@@ -117,6 +123,55 @@ class TestPipelineConstruction:
         regressor = build_pipeline(preprocessor, "regression", random_seed=0)
         assert type(classifier.named_steps["model"]).__name__ == "RandomForestClassifier"
         assert type(regressor.named_steps["model"]).__name__ == "RandomForestRegressor"
+
+
+class TestFeatureSelectionFits:
+    """The selection recipe has to survive being put in an imblearn pipeline.
+
+    imblearn refuses a nested ``Pipeline`` as an intermediate step, and
+    ``build_preprocessor`` returns one whenever the planner asks for feature
+    selection. Nesting it produced an object that could not be fitted at all --
+    and because ``run_leaderboard`` catches each candidate's failure separately,
+    the visible symptom was every model in the roster failing at once with a
+    message about pipelines. These tests fit the thing rather than inspecting it,
+    which is the only shape in which that bug exists.
+    """
+
+    def test_a_selection_recipe_is_spliced_in_rather_than_nested(self):
+        preprocessor = build_preprocessor(frame_of(20), target="churn", select_k=2).transformer
+        pipeline = build_pipeline(preprocessor, "classification", random_seed=0)
+        assert [name for name, _ in pipeline.steps] == ["columns", "select", "model"]
+
+    def test_cross_validation_runs_with_feature_selection_on(self):
+        frame = frame_of(40)
+        preprocessor = build_preprocessor(frame, target="churn", select_k=2).transformer
+        result = cross_validate_model(
+            frame, target="churn", task_type="classification", preprocessor=preprocessor
+        )
+        assert len(result.folds) == result.n_folds
+
+    def test_the_whole_roster_trains_with_feature_selection_on(self):
+        frame = frame_of(40)
+        preprocessor = build_preprocessor(frame, target="churn", select_k=2).transformer
+        leaderboard, _ = run_leaderboard(
+            frame,
+            target="churn",
+            task_type="classification",
+            preprocessor=preprocessor,
+            cv_folds=3,
+        )
+        assert not [entry.model_name for entry in leaderboard.entries if entry.error]
+
+    def test_the_preprocessing_half_is_recoverable_from_a_fitted_pipeline(self):
+        """Explainability needs the transform half, and it is not one named step."""
+        frame = frame_of(40)
+        preprocessor = build_preprocessor(frame, target="churn", select_k=2).transformer
+        pipeline = build_pipeline(preprocessor, "classification", random_seed=0)
+        pipeline.fit(frame.drop(columns=["churn"]), frame["churn"])
+
+        preprocess = preprocessing_of(pipeline)
+        assert preprocess.transform(frame.drop(columns=["churn"])).shape[1] == 2
+        assert len(preprocess.get_feature_names_out()) == 2
 
 
 class TestResultMetadata:

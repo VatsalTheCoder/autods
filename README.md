@@ -73,13 +73,13 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 
 - [x] **Section 0** — Skeleton: Docker Compose, config, S3 abstraction, health check
 - [x] **Section 1** — Upload: CSV to S3, jobs and artifacts tables
-- [ ] **Section 2** — LLM client: structured output, rate limiting, token accounting
-- [ ] **Section 3** — Schema detection and the human checkpoint
-- [ ] **Section 4** — Background worker: Celery, LangGraph, progress tracking
-- [ ] **Section 5** — Vertical slice: end-to-end demo *(milestone M1)*
-- [ ] **Section 6** — EDA and clustering
-- [ ] **Section 7** — Feature engineering
-- [ ] **Section 8** — Final training, SHAP, prediction
+- [x] **Section 2** — LLM client: structured output, rate limiting, token accounting
+- [x] **Section 3** — Schema detection and the human checkpoint
+- [x] **Section 4** — Background worker: Celery, LangGraph, progress tracking
+- [x] **Section 5** — Vertical slice: end-to-end demo *(milestone M1)*
+- [x] **Section 6** — EDA and clustering
+- [x] **Section 7** — Feature engineering
+- [x] **Section 8** — Final training, SHAP, prediction *(milestone M4)*
 - [ ] **Section 9** — Critic and report
 - [ ] **Section 10** — RAG chat
 - [ ] **Section 11** — AWS deployment

@@ -59,6 +59,14 @@ PREPROCESSOR_ARTIFACT = "preprocessing_pipeline.pkl"
 # the detailed account of the winner alone (spec 7.8).
 LEADERBOARD_ARTIFACT = "leaderboard.json"
 EVALUATION_ARTIFACT = "evaluation_report.json"
+# Section 8. The winner refitted on every row -- the only fitted estimator this
+# project stores, and the one `POST /jobs/{id}/predict` loads. The JSON beside it
+# says what the pickle is, including that its score is the cross-validated
+# estimate rather than anything the served model measured itself (spec 7.9).
+FINAL_MODEL_ARTIFACT = "final_model.pkl"
+FINAL_MODEL_INFO_ARTIFACT = "final_model.json"
+# Section 8. SHAP over that model, in the user's own column names (spec 7.10).
+EXPLAINABILITY_ARTIFACT = "explainability_report.json"
 REPORT_ARTIFACT = "report.md"
 
 

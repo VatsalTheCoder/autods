@@ -23,6 +23,8 @@ def test_pipeline_is_the_expected_sequence():
     # after cleaning -- so the charts describe the data the model actually saw --
     # and Section 7's strategy step before preprocessing, because choosing how
     # each column should be prepared is a separate act from building the recipe.
+    # Section 8 adds the refit and its explanation between evaluation and the
+    # report, so the report is written with both of them available to describe.
     assert PIPELINE_NODES == [
         "planner",
         "cleaning",
@@ -33,8 +35,21 @@ def test_pipeline_is_the_expected_sequence():
         "preprocessing",
         "modeling",
         "evaluation",
+        "final_training",
+        "explainability",
         "report",
     ]
+
+
+def test_the_model_is_refitted_after_it_has_been_scored():
+    """Order matters methodologically, not just mechanically (spec 7.9).
+
+    Fitting on the full dataset is only defensible once cross-validation has
+    produced the honest number. If final training ran first, the temptation --
+    and the opportunity -- to report a score from it would exist.
+    """
+    assert PIPELINE_NODES.index("evaluation") < PIPELINE_NODES.index("final_training")
+    assert PIPELINE_NODES.index("final_training") < PIPELINE_NODES.index("explainability")
 
 
 def test_eda_runs_after_cleaning_and_before_modelling():

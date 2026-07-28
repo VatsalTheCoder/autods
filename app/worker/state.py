@@ -24,6 +24,7 @@ import operator
 from typing import Annotated, Any, TypedDict
 
 import pandas as pd
+from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.compose import ColumnTransformer
 
 from app.agents.schema_models import SchemaReport
@@ -32,7 +33,9 @@ from app.ml.contracts import (
     ClusteringReport,
     EdaReport,
     EvaluationReport,
+    ExplainabilityReport,
     FeatureStrategy,
+    FinalModelInfo,
     Leaderboard,
     PlannerPlan,
     PreprocessingSpec,
@@ -96,6 +99,14 @@ class PipelineState(TypedDict, total=False):
     # Section 7. The whole roster, ranked; ``cv_result`` is the winner's folds.
     leaderboard: Leaderboard
     evaluation: EvaluationReport
+
+    # Section 8. The winner refitted on every row -- the fitted object, because
+    # the explainability node has to explain the model that will actually be
+    # served rather than an equivalent one it refitted for itself.
+    final_model: ImbPipeline
+    final_model_info: FinalModelInfo
+    explainability: ExplainabilityReport
+
     report_markdown: str
 
 
@@ -125,5 +136,12 @@ PIPELINE_NODES: list[str] = [
     "preprocessing",
     "modeling",
     "evaluation",
+    # Section 8. Refitting the winner on every row, then explaining it. Two nodes
+    # for the same reason the feature strategy is separate from preprocessing:
+    # they can fail independently and for different reasons. A model that trains
+    # but cannot be explained should still be saved and served, and the Progress
+    # page should say which of the two happened.
+    "final_training",
+    "explainability",
     "report",
 ]

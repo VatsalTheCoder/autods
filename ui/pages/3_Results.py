@@ -223,6 +223,169 @@ if evaluation.get("warnings"):
         for warning in evaluation["warnings"]:
             st.markdown(f"- {warning}")
 
+# ---- Why the model predicts what it does ------------------------------------
+# Directly after the scores, because "how well does it do" and "why does it do
+# it" are the two questions a reader has, in that order (Section 8).
+
+explainability, _ = fetch("explainability")
+if explainability and explainability.get("global_importance"):
+    st.divider()
+    st.subheader("Why the model predicts what it does")
+    st.caption(
+        f"SHAP ({explainability['explainer']}) over "
+        f"{explainability['n_rows_explained']:,} rows. The model works in "
+        f"{explainability['n_encoded_features']:,} encoded features; every one has been "
+        "traced back to the column it came from, so what follows is in your column names."
+    )
+
+    chart_column, table_column = st.columns([3, 2])
+    if "shap_importance.png" in explainability.get("plots", []):
+        chart_column.image(f"{API_BASE_URL}/jobs/{job_id}/artifacts/shap_importance.png/content")
+    table_column.dataframe(
+        [
+            {
+                "Column": item["feature"],
+                "Influence": round(item["importance"], 4),
+                "Share": f"{item['share']:.0%}",
+                "How it acts": item["direction"] or "—",
+            }
+            for item in explainability["global_importance"][:12]
+        ],
+        hide_index=True,
+        width="stretch",
+    )
+
+    for name in ("shap_summary.png", "shap_dependence.png"):
+        if name in explainability.get("plots", []):
+            st.image(f"{API_BASE_URL}/jobs/{job_id}/artifacts/{name}/content")
+
+    examples = explainability.get("examples", [])
+    if examples:
+        st.markdown("**Individual predictions, explained**")
+        st.caption(
+            "SHAP is additive: the baseline plus every column's contribution equals "
+            "the model's output for that row. That is what makes these an account of "
+            "the prediction rather than an illustration of it."
+        )
+        for index, example in enumerate(examples, start=1):
+            confidence = (
+                f" · {example['probability']:.0%} confidence"
+                if example.get("probability") is not None
+                else ""
+            )
+            with st.expander(f"Row {example['row_label']} → {example['predicted']}{confidence}"):
+                chart = f"shap_explanation_{index}.png"
+                if chart in explainability.get("plots", []):
+                    st.image(f"{API_BASE_URL}/jobs/{job_id}/artifacts/{chart}/content")
+                st.dataframe(
+                    [
+                        {
+                            "Column": c["feature"],
+                            "Value": c["value"],
+                            "Pushed the prediction by": round(c["contribution"], 4),
+                        }
+                        for c in example["contributions"]
+                    ],
+                    hide_index=True,
+                    width="stretch",
+                )
+                if example.get("explained_class"):
+                    # On a binary model the contributions push towards the
+                    # positive class whichever way the row came out, so the
+                    # direction has to be named or the signs read backwards.
+                    st.caption(
+                        "Positive bars push towards "
+                        f"`{evaluation['target_column']} = {example['explained_class']}`."
+                    )
+                st.caption(
+                    f"baseline {example['base_value']:+.4f} + contributions "
+                    f"= {example['output_value']:+.4f}"
+                )
+
+    with st.expander("How encoded features map back to your columns"):
+        st.caption(
+            "The translation the section above rests on. It is published so it can "
+            "be checked rather than trusted — a mislabelled feature is worse than a "
+            "missing one, because it gets believed."
+        )
+        st.dataframe(
+            [
+                {"Encoded feature": encoded, "Came from": origin}
+                for encoded, origin in explainability.get("feature_name_mapping", {}).items()
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+
+    if explainability.get("warnings"):
+        with st.expander("Explainability caveats"):
+            for warning in explainability["warnings"]:
+                st.markdown(f"- {warning}")
+elif explainability and explainability.get("warnings"):
+    st.divider()
+    st.subheader("Why the model predicts what it does")
+    for warning in explainability["warnings"]:
+        st.warning(warning)
+
+# ---- Try a prediction -------------------------------------------------------
+
+model_info, _ = fetch("model")
+if model_info and model_info.get("feature_columns"):
+    st.divider()
+    st.subheader("Try a prediction")
+    st.caption(
+        f"**{model_info['model_name']}**, refitted on all {model_info['n_rows']:,} rows and "
+        "saved to object storage. The form below sends your columns to the API, which "
+        "loads that saved pipeline and runs it — preprocessing included, exactly as it "
+        "was fitted."
+    )
+
+    with st.form("predict"):
+        supplied: dict[str, str] = {}
+        # Only the columns the recipe consumes. A column excluded at the
+        # checkpoint is still part of the model's input frame, but asking for a
+        # customer ID the model discards would imply it matters.
+        columns = [column for column in model_info["feature_columns"] if column.get("used", True)]
+        # Three across: a wide dataset otherwise produces a form the length of
+        # the page. Pre-filled with a real value from the training data so the
+        # units are never a guess.
+        for start in range(0, len(columns), 3):
+            for slot, column in zip(st.columns(3), columns[start : start + 3], strict=False):
+                supplied[column["name"]] = slot.text_input(
+                    column["name"],
+                    value=column.get("example", ""),
+                    help=f"{column['role']} · {column['dtype']}",
+                )
+        submitted = st.form_submit_button("Predict")
+
+    if submitted:
+        rows = [{name: value for name, value in supplied.items() if value != ""}]
+        try:
+            response = requests.post(
+                f"{API_BASE_URL}/jobs/{job_id}/predict", json={"rows": rows}, timeout=30
+            )
+        except requests.exceptions.RequestException as exc:
+            st.error(f"Could not reach the API: {exc}")
+        else:
+            if response.status_code != 200:
+                st.error(response.json().get("detail", f"HTTP {response.status_code}"))
+            else:
+                payload = response.json()
+                result = payload["predictions"][0]
+                st.success(f"**{payload['target_column']} = {result['prediction']}**")
+                if result.get("probabilities"):
+                    st.bar_chart(result["probabilities"], horizontal=True)
+                if payload.get("missing_columns"):
+                    st.info(
+                        "Left blank and filled in by the pipeline's imputers: "
+                        + ", ".join(f"`{name}`" for name in payload["missing_columns"])
+                    )
+                if payload.get("unexpected_columns"):
+                    st.warning(
+                        "Not columns this model knows, so they were ignored: "
+                        + ", ".join(f"`{name}`" for name in payload["unexpected_columns"])
+                    )
+
 # ---- What the data looks like ----------------------------------------------
 # Charts come through the API rather than a presigned URL: those are signed
 # against the storage endpoint, which a browser cannot resolve locally.

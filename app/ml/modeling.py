@@ -58,6 +58,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
 
@@ -227,8 +228,22 @@ def build_pipeline(
     preprocessing and the model, inside the object that gets cloned and fitted
     per fold, so it only ever sees a training fold. The returned object has not
     been fitted and must not be fitted by the caller.
+
+    **A recipe that is itself a Pipeline is spliced in, not nested.** When the
+    planner turns feature selection on, ``build_preprocessor`` returns a
+    ``Pipeline`` of the ColumnTransformer plus a ``SelectKBest``, and imblearn
+    rejects a Pipeline as an intermediate step outright ("All intermediate steps
+    of the chain should not be Pipelines"). Nesting one therefore produces an
+    object that cannot be fitted at all -- and, because ``run_leaderboard``
+    catches each candidate's failure individually, the symptom is every model in
+    the roster failing for the same opaque reason. Flattening keeps the step
+    order, and so the leakage property, exactly as it was.
     """
-    steps = [("preprocess", preprocessor)]
+    steps: list[tuple[str, object]] = []
+    if isinstance(preprocessor, SklearnPipeline):
+        steps.extend(preprocessor.steps)
+    else:
+        steps.append(("preprocess", preprocessor))
     if resampler is not None:
         steps.append(("resample", resampler))
     steps.append(
@@ -240,6 +255,28 @@ def build_pipeline(
         )
     )
     return ImbPipeline(steps=steps)
+
+
+def preprocessing_of(pipeline: ImbPipeline):
+    """Everything a fitted pipeline does to the data before the model sees it.
+
+    Needed because the recipe is not always one step: with feature selection on
+    it is spliced in as two (see ``build_pipeline``), so "the preprocessing" has
+    to be identified by what it is rather than by a fixed step name. Any
+    resampler is left out -- it has no ``transform`` and does not run at
+    prediction time, which is exactly what makes SMOTE safe here.
+
+    The result is the fitted transform half, ready to hand SHAP the matrix the
+    model actually sees along with the names of its columns.
+    """
+    steps = [
+        (name, step)
+        for name, step in pipeline.steps
+        if name != "model" and not hasattr(step, "fit_resample")
+    ]
+    if len(steps) == 1:
+        return steps[0][1]
+    return SklearnPipeline(steps=steps)
 
 
 def build_resampler(

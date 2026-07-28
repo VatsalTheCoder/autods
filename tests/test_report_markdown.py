@@ -22,9 +22,14 @@ from app.ml.contracts import (
     DtypeCorrection,
     EdaReport,
     EvaluationReport,
+    ExplainabilityReport,
+    FeatureImportance,
+    FinalModelInfo,
     FoldScore,
     Leaderboard,
     LeaderboardEntry,
+    LocalContribution,
+    LocalExplanation,
     MetricSummary,
     NumericSummary,
     PlannerPlan,
@@ -534,3 +539,126 @@ class TestBothPlanSourcesReadAsSentences:
         )
         assert "Preparation steps were chosen by the planning model." in report
         assert "came from chosen by" not in report
+
+
+class TestExplainabilityAndTheServedModel:
+    """Section 8's two sections -- the explanation, and what is actually saved.
+
+    The second one exists to carry a single sentence: the served model's score
+    was not measured, it was inherited from cross-validation. A report that
+    showed the same number without that sentence would be implying the model had
+    been scored on data it had never seen, which is the opposite of true.
+    """
+
+    @pytest.fixture
+    def explainability(self) -> ExplainabilityReport:
+        return ExplainabilityReport(
+            model_name="RandomForest",
+            task_type="classification",
+            target_column="churn",
+            explainer="TreeExplainer",
+            n_rows_explained=500,
+            n_encoded_features=19,
+            classes=["no", "yes"],
+            aggregation="Mean absolute SHAP value per feature.",
+            global_importance=[
+                FeatureImportance(
+                    feature="support_calls",
+                    importance=0.31,
+                    share=0.5,
+                    encoded_features=["support_calls"],
+                    direction="higher values push the prediction up",
+                ),
+                FeatureImportance(
+                    feature="city",
+                    importance=0.09,
+                    share=0.15,
+                    encoded_features=["city_London", "city_Leeds"],
+                ),
+            ],
+            examples=[
+                LocalExplanation(
+                    row_label="42",
+                    predicted="yes",
+                    explained_class="yes",
+                    probability=0.87,
+                    base_value=0.5,
+                    contributions=[
+                        LocalContribution(feature="support_calls", value="7", contribution=0.3),
+                        LocalContribution(feature="city", value="London", contribution=-0.05),
+                    ],
+                    other_contribution=0.02,
+                    output_value=0.77,
+                )
+            ],
+            feature_name_mapping={"city_London": "city"},
+        )
+
+    @pytest.fixture
+    def final_model(self) -> FinalModelInfo:
+        return FinalModelInfo(
+            model_name="RandomForest",
+            task_type="classification",
+            target_column="churn",
+            n_rows=100,
+            n_features=5,
+            primary_metric="f1_macro",
+            cv_score=0.8123,
+            artifact="final_model.pkl",
+        )
+
+    @pytest.fixture
+    def report(self, cleaning, preprocessing, evaluation, explainability, final_model) -> str:
+        return build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(source="llm"),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            explainability=explainability,
+            final_model=final_model,
+        )
+
+    def test_the_influences_are_listed_in_the_users_column_names(self, report):
+        assert "## Why the model predicts what it does" in report
+        assert "`support_calls`" in report
+        assert "`city`" in report
+        # The encoded names are the model's business, not the reader's.
+        assert "city_London" not in report
+
+    def test_a_column_with_no_defined_direction_is_left_blank_not_guessed(self, report):
+        """A one-hot column has no "higher value" to have a direction about."""
+        city_row = next(line for line in report.splitlines() if line.startswith("| `city`"))
+        assert city_row.rstrip().endswith("| — |")
+
+    def test_one_prediction_is_shown_adding_up(self, report):
+        assert "### One prediction, in full" in report
+        assert "Baseline: +0.5000" in report
+        assert "Model output: +0.7700" in report
+
+    def test_the_served_model_is_named_and_its_score_disclaimed(self, report):
+        assert "## The model that gets served" in report
+        assert "`final_model.pkl`" in report
+        assert "no unseen data left to score itself against" in report
+
+    def test_an_unexplainable_model_says_so_rather_than_leaving_a_gap(
+        self, cleaning, preprocessing, evaluation
+    ):
+        report = build_markdown_report(
+            filename="c.csv",
+            plan=PlannerPlan(source="default"),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            explainability=ExplainabilityReport(
+                model_name="GaussianNB",
+                task_type="classification",
+                target_column="churn",
+                warnings=["No SHAP explainer is defined for GaussianNB."],
+            ),
+        )
+        assert "No SHAP explainer is defined for GaussianNB." in report
+
+    def test_the_sections_are_absent_when_the_run_never_got_there(self, markdown):
+        assert "## Why the model predicts what it does" not in markdown
+        assert "## The model that gets served" not in markdown

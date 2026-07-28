@@ -38,8 +38,10 @@ from app.core.llm.factory import get_optional_llm
 from app.core.llm.usage import make_usage_recorder
 from app.ml.cleaning import clean_frame
 from app.ml.clustering import run_clustering
-from app.ml.contracts import PlannerPlan
+from app.ml.contracts import ExplainabilityReport, PlannerPlan
 from app.ml.evaluation import build_evaluation_report
+from app.ml.explain import ExplainabilityError, ExplainabilityResult, explain_model
+from app.ml.final_training import train_final_model
 from app.ml.modeling import run_leaderboard
 from app.ml.plots import render_charts
 from app.ml.preprocessing import build_preprocessor
@@ -53,7 +55,10 @@ from app.services.artifacts import (
     CLUSTERING_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
+    EXPLAINABILITY_ARTIFACT,
     FEATURE_ARTIFACT,
+    FINAL_MODEL_ARTIFACT,
+    FINAL_MODEL_INFO_ARTIFACT,
     LEADERBOARD_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
@@ -332,6 +337,101 @@ def evaluation_node(state: PipelineState) -> dict:
     return {"evaluation": report}
 
 
+def final_training_node(state: PipelineState) -> dict:
+    """Refit the winner on every row and save it for serving (spec 7.9).
+
+    The one node in the pipeline that fits on the full dataset -- correct here
+    and nowhere else, for the reason set out at length in ``ml/final_training.py``.
+    The score is not recomputed: what goes in the artifact is the cross-validated
+    figure, carried over and named so it cannot be mistaken for a measurement of
+    this model.
+    """
+    job_id = state["job_id"]
+    plan = state.get("plan")
+    leaderboard = state.get("leaderboard")
+    winner = leaderboard.winner() if leaderboard is not None else None
+
+    final = train_final_model(
+        state["cleaned"],
+        target=state["target"],
+        task_type=state["task_type"],
+        preprocessor=state["preprocessor"],
+        model_name=state["cv_result"].model_name,
+        use_smote=bool(plan and plan.use_smote),
+        strategy=state.get("feature_strategy"),
+        primary_metric=leaderboard.primary_metric if leaderboard is not None else "",
+        cv_score=winner.score if winner is not None else None,
+    )
+    final.info.artifact = FINAL_MODEL_ARTIFACT
+
+    buffer = io.BytesIO()
+    joblib.dump(final.pipeline, buffer)
+
+    with SessionLocal() as db:
+        register_bytes_artifact(
+            db,
+            job_id,
+            FINAL_MODEL_ARTIFACT,
+            buffer.getvalue(),
+            content_type="application/octet-stream",
+            kind=ArtifactKind.MODEL,
+        )
+        register_json_artifact(db, job_id, FINAL_MODEL_INFO_ARTIFACT, final.info)
+        db.commit()
+
+    return {"final_model": final.pipeline, "final_model_info": final.info}
+
+
+def explainability_node(state: PipelineState) -> dict:
+    """SHAP over the saved model, in the user's column names (spec 7.10).
+
+    Explains ``final_model`` rather than refitting anything, so the account is of
+    the object ``POST /jobs/{id}/predict`` will actually load.
+
+    A model family with no explainer is recorded, not raised. The pipeline's
+    headline claim is explainability, which is precisely why an unexplainable
+    model must produce a report that *says so* -- the alternative is a failed job
+    that throws away a perfectly good trained model and its evaluation, and
+    leaves the user to guess why.
+    """
+    job_id = state["job_id"]
+    info = state["final_model_info"]
+
+    try:
+        result = explain_model(
+            state["final_model"],
+            state["cleaned"],
+            target=state["target"],
+            task_type=state["task_type"],
+            model_name=info.model_name,
+        )
+    except ExplainabilityError as exc:
+        logger.warning("[job %s] no SHAP explanation: %s", job_id, exc)
+        result = ExplainabilityResult(
+            report=ExplainabilityReport(
+                model_name=info.model_name,
+                task_type=state["task_type"],
+                target_column=state["target"],
+                warnings=[str(exc)],
+            )
+        )
+
+    with SessionLocal() as db:
+        for chart in result.charts:
+            register_bytes_artifact(
+                db,
+                job_id,
+                chart.name,
+                chart.png,
+                content_type="image/png",
+                kind=ArtifactKind.PLOT,
+            )
+        register_json_artifact(db, job_id, EXPLAINABILITY_ARTIFACT, result.report)
+        db.commit()
+
+    return {"explainability": result.report}
+
+
 def report_node(state: PipelineState) -> dict:
     """Write the Markdown report -- the thing a human actually reads."""
     job_id = state["job_id"]
@@ -346,6 +446,8 @@ def report_node(state: PipelineState) -> dict:
         eda=state.get("eda_report"),
         clustering=state.get("clustering_report"),
         leaderboard=state.get("leaderboard"),
+        final_model=state.get("final_model_info"),
+        explainability=state.get("explainability"),
         sampling_note=state.get("sampling_note", ""),
     )
     with SessionLocal() as db:
@@ -371,6 +473,8 @@ NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "preprocessing": preprocessing_node,
     "modeling": modeling_node,
     "evaluation": evaluation_node,
+    "final_training": final_training_node,
+    "explainability": explainability_node,
     "report": report_node,
 }
 
