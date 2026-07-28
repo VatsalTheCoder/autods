@@ -106,8 +106,28 @@ class LLMConfigError(LLMError):
     """The client cannot be constructed -- e.g. no API key configured."""
 
 
-class RateLimitError(LLMError):
-    """The provider is rate-limiting us and backoff retries were exhausted."""
+class TransientLLMError(LLMError):
+    """The provider failed in a way that a retry could have fixed, and did not.
+
+    A 503, a gateway timeout, a connection reset, a request that outran its
+    deadline. Distinguished from every other failure for one reason: **it is not
+    a bug in this codebase**, and an agent that falls back needs to say so. Before
+    this class existed, a provider blip reached the agents as a bare ``Exception``
+    and was recorded as "fell back after an unexpected error" -- which sends
+    whoever reads it looking for a defect that is not there.
+
+    Raised only after the retry budget is spent, so seeing one means the provider
+    was unavailable for the whole of it rather than for an instant.
+    """
+
+
+class RateLimitError(TransientLLMError):
+    """The provider is rate-limiting us and backoff retries were exhausted.
+
+    A specialisation of ``TransientLLMError``: being throttled is the one
+    transient failure with a known cause and a known remedy (wait), which is why
+    it keeps its own type and its own proactive defence in ``rate_limit.py``.
+    """
 
 
 class StructuredOutputError(LLMError):

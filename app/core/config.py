@@ -109,6 +109,29 @@ class Settings(BaseSettings):
     llm_backoff_retries: int = 5
     llm_request_timeout: int = 60
 
+    # The ceiling on everything a retried call may add: the sleeps *and* the
+    # failed attempts. It exists because retrying a request that timed out is
+    # not free the way retrying a rate-limit rejection is -- a 429 comes back in
+    # milliseconds, a dead endpoint costs a full llm_request_timeout every time.
+    # Without a bound, one unresponsive provider turns a five-retry policy into
+    # five minutes of a pipeline node doing nothing.
+    #
+    # 90s against a 60s timeout means a slow failure is retried once and then
+    # given up on, while a fast one (a 503 returned immediately) still gets the
+    # full retry count. One number, and the *shape* of the failure decides how
+    # many attempts it earns -- which is the behaviour we want in both cases.
+    #
+    # The cost, stated plainly: against a provider that is *entirely* down, each
+    # LLM-calling node now spends up to this budget plus one final attempt before
+    # falling back, so a pipeline run takes a few minutes longer than it used to
+    # before reaching the same deterministic result. That is the price of
+    # surviving a blip rather than degrading on one, and it is bounded -- which
+    # the previous behaviour of "never retry" was not trading against anything.
+    # A re-ask for malformed JSON does not multiply it: that path only runs when
+    # the provider answered, and a transient failure propagates instead of being
+    # re-asked (see ``llm/structured.py``).
+    llm_retry_budget_seconds: int = 90
+
     # ---- Pipeline / modelling (Section 5) -------------------------------
     # Cross-validation folds. Five is the spec's figure (7.7) and the usual
     # bias/variance compromise; exposed because a tiny demo dataset may not have

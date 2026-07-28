@@ -17,8 +17,16 @@ Two open-model quirks it absorbs so callers never think about them:
   messages are folded into the first user turn. Harmless for models that do
   support one, which is why it is done unconditionally.
 * **Free-tier caps.** Every call clears this tier's ``RateLimiter`` first
-  (proactive) and is wrapped in ``retry_on_rate_limit`` (reactive), so the two
+  (proactive) and is wrapped in ``retry_with_backoff`` (reactive), so the two
   free-tier limits are respected without the caller doing anything.
+
+**Failures are classified before they leave this file**, and that is the point of
+the classification: an agent decides whether to fall back by catching
+``LLMError``, so anything reaching it as a bare exception gets recorded as an
+"unexpected error" and reads like a bug in this codebase. A 503 is not. So the
+two retryable families -- rate limiting and transient provider failure -- become
+``RateLimitError`` and ``TransientLLMError`` once their retry budget is spent,
+and everything else propagates untouched for the graph's failure path.
 
 The SDK is imported lazily in the constructor, not at module load. That keeps
 ``app.core.llm`` importable -- and the FakeLLM-based tests runnable -- on a
@@ -28,6 +36,7 @@ outside the container" rule.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Sequence
 
@@ -41,9 +50,32 @@ from app.core.llm.base import (
     ModelTier,
     RateLimitError,
     Role,
+    TransientLLMError,
     UsageCallback,
 )
-from app.core.llm.rate_limit import RateLimiter, estimate_input_tokens, retry_on_rate_limit
+from app.core.llm.rate_limit import RateLimiter, estimate_input_tokens, retry_with_backoff
+
+logger = logging.getLogger(__name__)
+
+# HTTP statuses that mean the provider failed, not the request. 429 is handled
+# separately: it is retryable too, but it has its own type, its own proactive
+# defence and its own message.
+_RETRYABLE_STATUS = frozenset({500, 502, 503, 504})
+
+# Transport failures, matched by class name so this module does not take a direct
+# dependency on httpx -- see ``_is_transient``.
+_RETRYABLE_TRANSPORT_ERRORS = frozenset(
+    {
+        "TimeoutException",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ConnectError",
+        "ReadError",
+        "RemoteProtocolError",
+    }
+)
 
 
 class GeminiLLM(LLMClient):
@@ -99,7 +131,9 @@ class GeminiLLM(LLMClient):
         }
         self._backoff_retries = settings.llm_backoff_retries
         self._timeout_ms = settings.llm_request_timeout * 1000
+        self._retry_budget = float(settings.llm_retry_budget_seconds)
         self._sleep_fn = sleep_fn
+        self._time_fn = time_fn
 
     def complete(
         self,
@@ -129,18 +163,36 @@ class GeminiLLM(LLMClient):
             )
 
         try:
-            raw = retry_on_rate_limit(
+            raw = retry_with_backoff(
                 _call,
                 retries=self._backoff_retries,
-                is_rate_limited=self._is_rate_limited,
+                is_retryable=self._is_retryable,
                 sleep_fn=self._sleep_fn,
+                time_fn=self._time_fn,
+                budget_seconds=self._retry_budget,
             )
-        except self._errors.APIError as exc:
-            # Only rate-limit errors reach here after exhausting backoff; other
-            # API errors propagate unwrapped for the graph's failure path.
+        except Exception as exc:
+            # Both retryable categories are translated into this layer's own
+            # exception types on the way out. That is what lets every agent's
+            # `except LLMError` branch report *why* it fell back: without it a
+            # provider outage arrives as a bare exception and is recorded as an
+            # "unexpected error", which reads like a defect in this codebase.
             if self._is_rate_limited(exc):
+                logger.warning("Rate limited by %s after %d retries", model, self._backoff_retries)
                 raise RateLimitError(
                     f"rate limited after {self._backoff_retries} backoff retries"
+                ) from exc
+            if self._is_transient(exc):
+                logger.warning(
+                    "%s was unavailable after retries within a %.0fs budget: %s",
+                    model,
+                    self._retry_budget,
+                    exc,
+                )
+                raise TransientLLMError(
+                    f"{model} was unavailable ({type(exc).__name__}: {exc}). Retries "
+                    f"were exhausted within the {self._retry_budget:.0f}s budget; the "
+                    "caller will fall back."
                 ) from exc
             raise
 
@@ -159,6 +211,31 @@ class GeminiLLM(LLMClient):
 
     def _is_rate_limited(self, exc: Exception) -> bool:
         return isinstance(exc, self._errors.APIError) and getattr(exc, "code", None) == 429
+
+    def _is_transient(self, exc: Exception) -> bool:
+        """Failures that say "the provider had a moment", not "your request is wrong".
+
+        Two families, and the second is the one that actually bites here:
+
+        * **Server-side 5xx.** 500, 502, 503 and 504 are the provider's own
+          statement that the failure is on its side. A 4xx is not: retrying a 400
+          re-sends the same malformed request, and retrying a 403 re-presents the
+          same rejected key.
+        * **Timeouts and dropped connections.** These surface from the transport
+          rather than the SDK -- ``google-genai`` runs on httpx, so a request that
+          outruns ``llm_request_timeout`` raises ``httpx.ReadTimeout``, not an
+          ``APIError`` with a code. Matched by class name rather than by importing
+          httpx, which keeps this module's only hard dependency the SDK it already
+          imports lazily, and keeps it working if the SDK's transport ever changes.
+        """
+        if isinstance(exc, self._errors.APIError):
+            return getattr(exc, "code", None) in _RETRYABLE_STATUS
+        # TimeoutException covers Read/Write/Connect/Pool; ConnectError and
+        # RemoteProtocolError cover a connection refused or cut mid-response.
+        return type(exc).__name__ in _RETRYABLE_TRANSPORT_ERRORS
+
+    def _is_retryable(self, exc: Exception) -> bool:
+        return self._is_rate_limited(exc) or self._is_transient(exc)
 
     def _to_contents(self, messages: Sequence[ChatMessage]) -> list:
         """Translate provider-neutral messages into Gemma's content list.

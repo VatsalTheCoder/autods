@@ -26,6 +26,7 @@ from app.core.llm.base import (
     RateLimitError,
     Role,
     StructuredOutputError,
+    TransientLLMError,
     UsageCallback,
     assistant,
     system,
@@ -36,7 +37,7 @@ from app.core.llm.rate_limit import (
     RateLimiter,
     TokenBucket,
     estimate_input_tokens,
-    retry_on_rate_limit,
+    retry_with_backoff,
 )
 from app.core.llm.structured import StructuredResult, extract_json, structured_complete
 from app.core.llm.usage import estimate_cost, job_token_totals, make_usage_recorder
@@ -61,6 +62,7 @@ __all__ = [
     "StructuredOutputError",
     "StructuredResult",
     "TokenBucket",
+    "TransientLLMError",
     "UsageCallback",
     "assistant",
     "estimate_cost",
@@ -68,7 +70,7 @@ __all__ = [
     "extract_json",
     "job_token_totals",
     "make_usage_recorder",
-    "retry_on_rate_limit",
+    "retry_with_backoff",
     "structured_complete",
     "system",
     "user",
