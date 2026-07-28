@@ -28,10 +28,27 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # WeasyPrint links against these at *render* time, not import time, so
+      # without them the PDF tests fail deep inside a library rather than at the
+      # import that would explain why. The list mirrors the Dockerfile's.
+      - name: Install the system libraries WeasyPrint renders through
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 \
+            libpangoft2-1.0-0 \
+            libharfbuzz-subset0 \
+            libgdk-pixbuf-2.0-0 \
+            libffi-dev \
+            shared-mime-info
+
+      # The ``ui`` extra is not optional here: the Results page is rendered
+      # headlessly in the test suite, so Streamlit is a test dependency whether
+      # or not this job serves a UI.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[ui,dev]"
 
       - name: Lint (ruff)
         run: ruff check .
