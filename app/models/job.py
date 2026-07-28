@@ -31,6 +31,8 @@ from app.core.db import Base
 if TYPE_CHECKING:
     from app.models.agent_run import AgentRun
     from app.models.artifact import Artifact
+    from app.models.chat_message import ChatMessage
+    from app.models.run_chunk import RunChunk
     from app.models.token_usage import TokenUsage
     from app.models.user import User
 
@@ -103,6 +105,18 @@ class Job(Base):
         cascade="all, delete-orphan",
         # Always hand them back in pipeline order, so the UI never has to sort.
         order_by="AgentRun.sequence",
+    )
+    # Section 10. The retrievable passages of this run's output, and the chat
+    # transcript over them. Both die with the job: passages describe this run's
+    # numbers, and a transcript about a job nobody can look up is not worth
+    # keeping.
+    chunks: Mapped[list[RunChunk]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+    chat_messages: Mapped[list[ChatMessage]] = relationship(
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.id",
     )
 
     def __repr__(self) -> str:

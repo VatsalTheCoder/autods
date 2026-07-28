@@ -64,6 +64,18 @@ dependencies = [
     # libraries (pango, cairo) in the image; see the Dockerfile.
     "markdown>=3.6",
     "weasyprint>=62",
+    # Section 10: embeddings for RAG (spec 7.13). The spec's constraint is
+    # open-source models running on CPU, and names sentence-transformers, BGE and
+    # E5 as the options. This takes BGE, but through fastembed's ONNX runtime
+    # rather than sentence-transformers' -- measured, the torch route adds
+    # 1,208 MB to the image and this one adds 194 MB, for the same model and the
+    # same constraint satisfied. No GPU, no torch, no network at query time.
+    "fastembed>=0.4",
+    # pgvector's SQLAlchemy types. The vector store is Postgres, which is
+    # already running: the spec locks ChromaDB and documents pgvector as the
+    # fallback, and Section 11 has to give ChromaDB a persistent EBS volume that
+    # this removes the need for by removing the service.
+    "pgvector>=0.3",
 ]
 
 [project.optional-dependencies]
