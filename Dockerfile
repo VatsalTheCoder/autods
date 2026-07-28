@@ -17,8 +17,21 @@ WORKDIR /code
 # runtime (Section 7): its wheel links against it but does not bundle it, so
 # without this the import fails at container start with a bare
 # "libgomp.so.1: cannot open shared object file".
+#
+# The pango/cairo/gdk-pixbuf trio is WeasyPrint's rendering stack (Section 9).
+# WeasyPrint is pure Python but binds to these at runtime, so without them the
+# *import* succeeds and the first PDF render fails -- which is the worst place
+# to find out, since it is at the end of a pipeline run.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl libgomp1 \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        libgomp1 \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz-subset0 \
+        libgdk-pixbuf-2.0-0 \
+        libffi-dev \
+        shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 # Dependencies are installed before the source is copied. Docker caches layers,

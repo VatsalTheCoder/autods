@@ -56,6 +56,14 @@ dependencies = [
     # members go through LinearExplainer, which is why the node dispatches on
     # model family instead of reaching for one explainer.
     "shap>=0.46",
+    # Section 9: the report as a document rather than a text file (spec 7.12).
+    # WeasyPrint over ReportLab because the report already exists as Markdown --
+    # markdown to HTML to PDF is a translation, while ReportLab would mean
+    # rebuilding the whole document programmatically as flowables and keeping
+    # that in step with the Markdown version by hand. The cost is system
+    # libraries (pango, cairo) in the image; see the Dockerfile.
+    "markdown>=3.6",
+    "weasyprint>=62",
 ]
 
 [project.optional-dependencies]

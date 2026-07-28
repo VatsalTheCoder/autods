@@ -471,14 +471,99 @@ if clustering and clustering.get("k"):
 # ---- The report -------------------------------------------------------------
 
 st.divider()
+
+# ---- What the review found --------------------------------------------------
+
+critic, _ = fetch("critic")
+if critic and (critic.get("findings") or critic.get("verdict")):
+    st.subheader("What the review found")
+    if critic.get("verdict"):
+        st.markdown(critic["verdict"])
+
+    if critic.get("source") == "default":
+        st.caption(
+            "These are automated threshold checks rather than a written review — "
+            "no language model was available for this run."
+        )
+
+    if critic.get("strengths"):
+        with st.expander("Held up well"):
+            for item in critic["strengths"]:
+                st.markdown(f"- {item}")
+
+    if critic.get("findings"):
+        # Worst first. A review sorted by the order checks happened to run in
+        # buries the blocker under three notes.
+        rank = {"blocker": 0, "concern": 1, "note": 2}
+        findings = sorted(critic["findings"], key=lambda f: rank.get(f["severity"], 3))
+        st.dataframe(
+            [
+                {
+                    "Severity": f["severity"],
+                    "Area": f["area"],
+                    "Finding": f["finding"],
+                    "Recommendation": f["recommendation"] or "—",
+                    # A threshold result and a model's opinion are both worth
+                    # reading and are not worth the same.
+                    "Source": "measured" if f.get("measured") else "review",
+                }
+                for f in findings
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+
+    if critic.get("recommended_next_steps"):
+        st.markdown("**The reviewer suggests:**")
+        for item in critic["recommended_next_steps"]:
+            st.markdown(f"- {item}")
+
+    if critic.get("omissions"):
+        with st.expander("What the review did not see"):
+            st.caption(
+                "The reviewer reads a summary sized to fit the model's token limit. "
+                "On a wide dataset that summary is capped, and a critique of part of "
+                "a run should say so."
+            )
+            for note in critic["omissions"]:
+                st.markdown(f"- {note}")
+
+    st.divider()
+
+# ---- The report -------------------------------------------------------------
+
 report, report_error = fetch("report")
 if report is None:
     st.info(report_error)
 else:
-    st.download_button(
+    markdown_column, pdf_column = st.columns(2)
+    markdown_column.download_button(
         "Download report (Markdown)",
         data=report["markdown"],
         file_name=f"autods_job_{job_id}_report.md",
         mime="text/markdown",
+        width="stretch",
     )
+
+    # Fetched rather than linked: a download_button needs the bytes, and the
+    # PDF is best-effort, so its absence has to degrade to a caption rather
+    # than a dead button.
+    try:
+        pdf = requests.get(f"{API_BASE_URL}/jobs/{job_id}/report/pdf", timeout=30)
+    except requests.exceptions.RequestException:
+        pdf = None
+    if pdf is not None and pdf.status_code == 200:
+        pdf_column.download_button(
+            "Download report (PDF)",
+            data=pdf.content,
+            file_name=f"autods_job_{job_id}_report.pdf",
+            mime="application/pdf",
+            type="primary",
+            width="stretch",
+        )
+    else:
+        pdf_column.caption(
+            "No PDF for this run. The Markdown report beside it is the authoritative version."
+        )
+
     st.markdown(report["markdown"])

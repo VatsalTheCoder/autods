@@ -31,12 +31,14 @@ from app.agents.schema_models import SchemaReport
 from app.ml.contracts import (
     CleaningReport,
     ClusteringReport,
+    CriticReport,
     EdaReport,
     EvaluationReport,
     ExplainabilityReport,
     FeatureStrategy,
     FinalModelInfo,
     Leaderboard,
+    NarrativeReport,
     PlannerPlan,
     PreprocessingSpec,
 )
@@ -107,6 +109,16 @@ class PipelineState(TypedDict, total=False):
     final_model_info: FinalModelInfo
     explainability: ExplainabilityReport
 
+    # Section 9. The review, and the report's prose. Kept apart from
+    # ``report_markdown`` because they are the model's contribution and that is
+    # the half a reader may want to weigh differently from the tables.
+    critic: CriticReport
+    narrative: NarrativeReport
+    # The shrunk view both Section 9 agents read, built once by the critic node
+    # and passed on -- summarising twice would double the token spend on the
+    # limit that binds hardest, and risk two different views of one run.
+    run_summary: object
+
     report_markdown: str
 
 
@@ -143,5 +155,10 @@ PIPELINE_NODES: list[str] = [
     # page should say which of the two happened.
     "final_training",
     "explainability",
+    # Section 9. The critic reads everything above it, so it goes last but one;
+    # the report then has the review available to reflect rather than to append.
+    # A report written before its own critique would be the wrong way round --
+    # the executive summary is exactly where a concern needs to appear.
+    "critic",
     "report",
 ]
