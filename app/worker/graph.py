@@ -41,6 +41,7 @@ from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.llm.factory import get_optional_llm
 from app.core.llm.usage import make_usage_recorder
+from app.ml.chunking import build_chunks
 from app.ml.cleaning import clean_frame
 from app.ml.clustering import run_clustering
 from app.ml.contracts import ExplainabilityReport, PlannerPlan
@@ -76,6 +77,7 @@ from app.services.artifacts import (
     register_bytes_artifact,
     register_json_artifact,
 )
+from app.services.retrieval import index_run
 from app.worker.progress import fail_node, finish_node, skip_node, start_node
 from app.worker.state import PIPELINE_NODES, PipelineState
 
@@ -575,6 +577,43 @@ def _store_pdf(job_id: int, markdown: str, filename: str) -> None:
         db.commit()
 
 
+def chat_index_node(state: PipelineState) -> dict:
+    """Embed the run's written output so it can be asked about (spec 7.13).
+
+    Runs last, over the artifacts every node before it produced. The passages are
+    built from the *contracts* rather than re-read from storage, because they are
+    already on the shared state -- and a chunk built from the object the report
+    was written from cannot disagree with the report.
+
+    Failure here is contained rather than propagated. Indexing is the last thing
+    the pipeline does and nothing depends on it: a run whose embeddings failed
+    still has a model, a report and a PDF, and losing all of that because a chat
+    feature could not be prepared would be the wrong trade. The Chat page reports
+    an unindexed run for itself, so the failure is visible where it matters.
+    """
+    job_id = state["job_id"]
+    try:
+        chunks = build_chunks(
+            filename=state.get("filename", ""),
+            narrative=state.get("narrative"),
+            critic=state.get("critic"),
+            explainability=state.get("explainability"),
+            clustering=state.get("clustering_report"),
+            evaluation=state.get("evaluation"),
+            eda=state.get("eda_report"),
+            cleaning=state.get("cleaning_report"),
+            features=state.get("feature_strategy"),
+        )
+        with SessionLocal() as db:
+            stored = index_run(db, job_id, chunks)
+            db.commit()
+    except Exception:
+        logger.exception("[job %s] the run could not be indexed for chat", job_id)
+        return {"chunks_indexed": 0}
+
+    return {"chunks_indexed": stored}
+
+
 NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "planner": planner_node,
     "cleaning": cleaning_node,
@@ -589,6 +628,7 @@ NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "explainability": explainability_node,
     "critic": critic_node,
     "report": report_node,
+    "chat_index": chat_index_node,
 }
 
 
