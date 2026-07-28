@@ -1,5 +1,9 @@
 """Token-bucket rate limiting for the free-tier API.
 
+It also holds the reactive half of the same job: ``retry_with_backoff``, which
+survives the failures throttling cannot prevent -- the 429 that slips through, and
+the 5xx or timeout that has nothing to do with quota at all.
+
 The Google AI Studio free tier caps us on two axes at once (spec section 6.3):
 requests per minute and *input* tokens per minute. The second is the binding
 one -- a couple of Critic/Report prompts can blow the 15K input-TPM ceiling
@@ -143,39 +147,58 @@ class RateLimiter:
             return waited
 
 
-def retry_on_rate_limit[R](
+def retry_with_backoff[R](
     fn: Callable[[], R],
     *,
     retries: int,
-    is_rate_limited: Callable[[Exception], bool],
+    is_retryable: Callable[[Exception], bool],
     sleep_fn: Callable[[float], None] = time.sleep,
+    time_fn: Callable[[], float] = time.monotonic,
+    budget_seconds: float | None = None,
     base_delay: float = 1.0,
     max_delay: float = 60.0,
     rng: Callable[[], float] = random.random,
 ) -> R:
-    """Call ``fn``, retrying with exponential backoff on rate-limit errors.
+    """Call ``fn``, retrying with exponential backoff on failures worth retrying.
 
-    The token bucket keeps us *under* the cap proactively; this is the safety
-    net for when the provider rate-limits us anyway (a burst, a clock skew, a
-    shared quota) -- spec section 10 mandates exponential backoff on HTTP 429.
-    The two work together: the bucket makes 429s rare, backoff survives the ones
-    that slip through.
+    The token bucket keeps us *under* the rate cap proactively; this is the
+    safety net for everything reactive -- the 429 that slips through a burst or a
+    shared quota (spec section 10 mandates exponential backoff on those), and the
+    503s, gateway timeouts and dropped connections that no amount of proactive
+    throttling can prevent.
 
-    Only exceptions ``is_rate_limited`` recognises are retried -- a 400 for a
-    malformed request must fail immediately, not sleep and try again five times.
-    ``sleep_fn`` and ``rng`` are injected so the backoff schedule is asserted in
-    tests without a single real second elapsing, and without the network the
-    caller would otherwise need.
+    Only exceptions ``is_retryable`` recognises are retried. A 400 for a
+    malformed request must fail immediately: it will fail identically five times
+    and the only thing retrying buys is a slower error message.
+
+    **Two bounds, because retries are not equally expensive.** ``retries`` caps
+    the attempts, and ``budget_seconds`` caps the *elapsed time* they may add --
+    measured from the first call, so it counts the failed attempts and not just
+    the sleeps between them. That distinction is the whole point of the second
+    bound: a rate-limit rejection returns in milliseconds and can afford five
+    tries, while a request that hangs until its deadline costs a full timeout
+    every time and can afford about one. One budget expresses both, and the shape
+    of the failure decides how many attempts it earns.
+
+    ``sleep_fn``, ``time_fn`` and ``rng`` are injected so the whole schedule is
+    asserted in tests without a real second elapsing or a network to fail against.
     """
+    started = time_fn()
     attempt = 0
     while True:
         try:
             return fn()
         except Exception as exc:
-            if not is_rate_limited(exc) or attempt >= retries:
+            if not is_retryable(exc) or attempt >= retries:
                 raise
             delay = min(max_delay, base_delay * (2**attempt))
             delay += rng() * delay * 0.1  # +0-10% jitter, so retries desynchronise
+            if budget_seconds is not None and (time_fn() - started) + delay >= budget_seconds:
+                # Give up now rather than starting an attempt the budget cannot
+                # cover. Raising the provider's own exception keeps the reason
+                # for the failure intact -- the caller reports what went wrong,
+                # not merely that we stopped trying.
+                raise
             sleep_fn(delay)
             attempt += 1
 

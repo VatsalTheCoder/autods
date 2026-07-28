@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 from app.agents.planner import make_plan
-from app.core.llm.base import LLMConfigError, RateLimitError
+from app.core.llm.base import LLMConfigError, RateLimitError, TransientLLMError
 from app.core.llm.fake import FakeLLM
 from app.services.profiling import profile_dataset
 
@@ -129,3 +129,19 @@ class TestDegradingToDefaults:
     def test_the_fallback_says_why(self, schema):
         plan = make_plan(schema, client=FakeLLM([RateLimitError("429")]))
         assert plan.rationale
+
+    def test_a_provider_outage_does_not_fail_the_job(self, schema):
+        plan = make_plan(schema, client=FakeLLM([TransientLLMError("503 after retries")]))
+        assert plan.source == "default"
+
+    def test_a_provider_outage_is_recorded_as_one(self, schema):
+        """The reason a reader of ``planner_report.json`` needs, in it.
+
+        ``TransientLLMError`` is an ``LLMError``, so it lands in the branch that
+        states the cause rather than the defensive catch-all that says "an
+        unexpected error" -- which would send whoever reads the artifact hunting
+        for a bug in this codebase instead of checking the provider's status page.
+        """
+        plan = make_plan(schema, client=FakeLLM([TransientLLMError("503 after retries")]))
+        assert "503 after retries" in plan.rationale
+        assert "unexpected" not in plan.rationale

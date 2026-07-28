@@ -115,3 +115,153 @@ class TestLiveRoundTrip:
         # Real usage metadata, not estimated.
         assert result.responses[0].estimated is False
         assert result.responses[0].input_tokens > 0
+
+
+# --- Failure classification: no network, no key, no real provider -------------
+
+
+class TestTransientFailures:
+    """A provider blip must be retried, then reported as a provider blip.
+
+    Both halves matter. Without the retry, one 503 costs an agent its LLM answer
+    for the whole run. Without the classification, the failure reaches the agent
+    as a bare exception and is recorded as "fell back after an unexpected error"
+    -- which reads like a defect in this codebase and sends the next person
+    looking for one.
+    """
+
+    @staticmethod
+    def _client(monkeypatch, responses, *, budget=90.0, timeout=60):
+        """A client whose provider call yields ``responses`` in order.
+
+        Time is simulated: each attempt advances the clock by the request
+        timeout, so a hanging provider costs what it would really cost without a
+        test taking minutes to prove it.
+        """
+        from app.core.llm import GeminiLLM
+
+        clock = {"t": 0.0}
+        settings = Settings(
+            _env_file=None,
+            google_api_key="x",
+            llm_backoff_retries=5,
+            llm_request_timeout=timeout,
+            llm_retry_budget_seconds=budget,
+        )
+        client = GeminiLLM(
+            api_key="x",
+            settings=settings,
+            sleep_fn=lambda s: clock.__setitem__("t", clock["t"] + s),
+            time_fn=lambda: clock["t"],
+        )
+
+        attempts = {"n": 0}
+        queue = list(responses)
+
+        def fake_generate(**_kwargs):
+            attempts["n"] += 1
+            outcome = queue.pop(0) if queue else responses[-1]
+            if isinstance(outcome, Exception):
+                # A failed request still burns its timeout before raising.
+                clock["t"] += timeout
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(client._client.models, "generate_content", fake_generate)
+        return client, attempts, clock
+
+    @staticmethod
+    def _ok():
+        class _Raw:
+            text = "hello"
+            usage_metadata = None
+
+        return _Raw()
+
+    @staticmethod
+    def _api_error(code: int):
+        from google.genai import errors
+
+        return errors.APIError(code, {"message": "upstream", "status": "UNAVAILABLE"})
+
+    def test_a_503_is_retried_and_can_recover(self, monkeypatch):
+        client, attempts, _ = self._client(monkeypatch, [self._api_error(503), self._ok()])
+
+        response = client.complete([user("hi")])
+
+        assert response.text == "hello"
+        assert attempts["n"] == 2
+
+    @pytest.mark.parametrize("code", [500, 502, 503, 504])
+    def test_every_server_side_status_is_treated_as_transient(self, monkeypatch, code):
+        client, attempts, _ = self._client(monkeypatch, [self._api_error(code), self._ok()])
+        assert client.complete([user("hi")]).text == "hello"
+        assert attempts["n"] == 2
+
+    @pytest.mark.parametrize("code", [400, 403, 404])
+    def test_client_side_errors_are_not_retried(self, monkeypatch, code):
+        """Retrying a malformed request re-sends the same malformed request."""
+        from google.genai import errors
+
+        client, attempts, _ = self._client(monkeypatch, [self._api_error(code)])
+
+        with pytest.raises(errors.APIError):
+            client.complete([user("hi")])
+        assert attempts["n"] == 1
+
+    def test_a_transport_timeout_is_transient_too(self, monkeypatch):
+        """The failure that actually bites: httpx raises, not the SDK.
+
+        A request that outruns ``llm_request_timeout`` never becomes an
+        ``APIError`` with a status code, so classifying on code alone would miss
+        the single most likely transient failure in this project.
+        """
+        import httpx
+
+        client, attempts, _ = self._client(monkeypatch, [httpx.ReadTimeout("too slow"), self._ok()])
+
+        assert client.complete([user("hi")]).text == "hello"
+        assert attempts["n"] == 2
+
+    def test_an_exhausted_transient_failure_becomes_an_llm_error(self, monkeypatch):
+        """The type is what routes an agent to its "say why" branch."""
+        from app.core.llm import LLMError, TransientLLMError
+
+        client, _, _ = self._client(monkeypatch, [self._api_error(503)])
+
+        with pytest.raises(TransientLLMError) as caught:
+            client.complete([user("hi")])
+        # Agents catch LLMError; TransientLLMError has to be one or the whole
+        # point of the classification is lost.
+        assert isinstance(caught.value, LLMError)
+        assert "unavailable" in str(caught.value)
+
+    def test_the_message_names_the_cause_not_just_the_failure(self, monkeypatch):
+        """ "ReadTimeout" in an artifact is worth more than "an error occurred"."""
+        import httpx
+
+        client, _, _ = self._client(monkeypatch, [httpx.ReadTimeout("too slow")])
+
+        with pytest.raises(Exception, match="ReadTimeout"):
+            client.complete([user("hi")])
+
+    def test_a_hanging_provider_is_bounded_by_the_budget(self, monkeypatch):
+        """Five retries against a 60s timeout would stall a node for minutes."""
+        from app.core.llm import TransientLLMError
+
+        client, attempts, clock = self._client(monkeypatch, [self._api_error(503)], budget=90.0)
+
+        with pytest.raises(TransientLLMError):
+            client.complete([user("hi")])
+
+        assert attempts["n"] == 2  # one retry fits in 90s; a second does not
+        assert clock["t"] < 130.0
+
+    def test_rate_limiting_still_has_its_own_type(self, monkeypatch):
+        """A regression guard: 429 must not be swallowed by the new branch."""
+        from app.core.llm import RateLimitError
+
+        client, _, _ = self._client(monkeypatch, [self._api_error(429)])
+
+        with pytest.raises(RateLimitError):
+            client.complete([user("hi")])

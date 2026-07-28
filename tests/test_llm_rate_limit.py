@@ -13,7 +13,7 @@ from app.core.llm.rate_limit import (
     RateLimiter,
     TokenBucket,
     estimate_input_tokens,
-    retry_on_rate_limit,
+    retry_with_backoff,
 )
 
 
@@ -124,7 +124,11 @@ class RateLimited(Exception):
     """Stand-in for the provider's 429 error."""
 
 
-class TestRetryOnRateLimit:
+class Timeout(Exception):
+    """Stand-in for a request that outran its deadline -- the expensive failure."""
+
+
+class TestRetryWithBackoff:
     def test_returns_immediately_on_success(self):
         calls = {"n": 0}
 
@@ -132,8 +136,8 @@ class TestRetryOnRateLimit:
             calls["n"] += 1
             return "ok"
 
-        result = retry_on_rate_limit(
-            fn, retries=3, is_rate_limited=lambda e: True, sleep_fn=lambda s: None
+        result = retry_with_backoff(
+            fn, retries=3, is_retryable=lambda e: True, sleep_fn=lambda s: None
         )
         assert result == "ok"
         assert calls["n"] == 1
@@ -148,10 +152,10 @@ class TestRetryOnRateLimit:
                 raise RateLimited
             return "recovered"
 
-        result = retry_on_rate_limit(
+        result = retry_with_backoff(
             fn,
             retries=5,
-            is_rate_limited=lambda e: isinstance(e, RateLimited),
+            is_retryable=lambda e: isinstance(e, RateLimited),
             sleep_fn=slept.append,
             base_delay=1.0,
             rng=lambda: 0.0,  # no jitter, so the schedule is exact
@@ -165,10 +169,10 @@ class TestRetryOnRateLimit:
             raise RateLimited
 
         with pytest.raises(RateLimited):
-            retry_on_rate_limit(
+            retry_with_backoff(
                 fn,
                 retries=2,
-                is_rate_limited=lambda e: True,
+                is_retryable=lambda e: True,
                 sleep_fn=lambda s: None,
                 rng=lambda: 0.0,
             )
@@ -181,10 +185,10 @@ class TestRetryOnRateLimit:
             raise ValueError("bad request")
 
         with pytest.raises(ValueError):
-            retry_on_rate_limit(
+            retry_with_backoff(
                 fn,
                 retries=5,
-                is_rate_limited=lambda e: isinstance(e, RateLimited),
+                is_retryable=lambda e: isinstance(e, RateLimited),
                 sleep_fn=lambda s: None,
             )
         assert attempts["n"] == 1  # failed once, never retried
@@ -199,10 +203,10 @@ class TestRetryOnRateLimit:
                 raise RateLimited
             return "ok"
 
-        retry_on_rate_limit(
+        retry_with_backoff(
             fn,
             retries=10,
-            is_rate_limited=lambda e: isinstance(e, RateLimited),
+            is_retryable=lambda e: isinstance(e, RateLimited),
             sleep_fn=slept.append,
             base_delay=1.0,
             max_delay=4.0,
@@ -215,3 +219,124 @@ class TestRetryOnRateLimit:
 def test_estimate_input_tokens_is_roughly_chars_over_four():
     assert estimate_input_tokens("") == 1  # never zero, so a call always costs something
     assert estimate_input_tokens("a" * 400) == 100
+
+
+class TestTheTimeBudget:
+    """Retries are not equally expensive, and the count alone cannot express that.
+
+    A rate-limit rejection comes back in milliseconds, so five of them cost
+    almost nothing. A request that hangs until its deadline costs a full timeout
+    *per attempt*, so the same five would stall a pipeline node for minutes. The
+    budget is measured from the first call rather than summed over the sleeps,
+    which is what makes it count the failed attempts too -- the expensive part.
+    """
+
+    def test_a_fast_failure_still_gets_every_retry(self):
+        """Nothing changes for the cheap case: the budget is never approached."""
+        clock = {"t": 0.0}
+        attempts = {"n": 0}
+
+        def fn():
+            attempts["n"] += 1
+            raise RateLimited
+
+        with pytest.raises(RateLimited):
+            retry_with_backoff(
+                fn,
+                retries=3,
+                is_retryable=lambda e: True,
+                sleep_fn=lambda s: clock.__setitem__("t", clock["t"] + s),
+                time_fn=lambda: clock["t"],
+                budget_seconds=90.0,
+                rng=lambda: 0.0,
+            )
+        assert attempts["n"] == 4  # the original call plus three retries
+
+    def test_a_slow_failure_is_cut_off_by_the_budget(self):
+        """Each attempt burns 60s of wall clock -- the retry count never binds."""
+        clock = {"t": 0.0}
+        attempts = {"n": 0}
+
+        def fn():
+            attempts["n"] += 1
+            clock["t"] += 60.0  # the request hangs until its timeout
+            raise Timeout
+
+        with pytest.raises(Timeout):
+            retry_with_backoff(
+                fn,
+                retries=5,
+                is_retryable=lambda e: True,
+                sleep_fn=lambda s: clock.__setitem__("t", clock["t"] + s),
+                time_fn=lambda: clock["t"],
+                budget_seconds=90.0,
+                rng=lambda: 0.0,
+            )
+        # One retry fits inside 90s; a second would start at 121s and is refused.
+        assert attempts["n"] == 2
+        assert clock["t"] < 130.0
+
+    def test_the_budget_counts_attempts_not_just_sleeps(self):
+        """The distinction the whole design rests on.
+
+        Were the budget a sum of backoff delays, the 60s attempts above would be
+        invisible to it and five of them would run -- five minutes of a node doing
+        nothing, under a policy that believed it had spent three seconds.
+        """
+        clock = {"t": 0.0}
+        attempts = {"n": 0}
+
+        def fn():
+            attempts["n"] += 1
+            clock["t"] += 30.0
+            raise Timeout
+
+        with pytest.raises(Timeout):
+            retry_with_backoff(
+                fn,
+                retries=10,
+                is_retryable=lambda e: True,
+                sleep_fn=lambda s: clock.__setitem__("t", clock["t"] + s),
+                time_fn=lambda: clock["t"],
+                budget_seconds=90.0,
+                rng=lambda: 0.0,
+            )
+        # 30 + 1 + 30 + 2 + 30 = 93 > 90, so the third attempt is the last.
+        assert attempts["n"] == 3
+
+    def test_the_providers_own_error_survives_the_cutoff(self):
+        """Giving up must not replace the reason with "we stopped trying"."""
+        clock = {"t": 0.0}
+
+        def fn():
+            clock["t"] += 100.0
+            raise Timeout("upstream did not respond")
+
+        with pytest.raises(Timeout, match="upstream did not respond"):
+            retry_with_backoff(
+                fn,
+                retries=5,
+                is_retryable=lambda e: True,
+                sleep_fn=lambda s: None,
+                time_fn=lambda: clock["t"],
+                budget_seconds=90.0,
+                rng=lambda: 0.0,
+            )
+
+    def test_no_budget_means_the_count_is_the_only_bound(self):
+        """Omitting it keeps the previous behaviour exactly."""
+        attempts = {"n": 0}
+
+        def fn():
+            attempts["n"] += 1
+            raise RateLimited
+
+        with pytest.raises(RateLimited):
+            retry_with_backoff(
+                fn,
+                retries=2,
+                is_retryable=lambda e: True,
+                sleep_fn=lambda s: None,
+                rng=lambda: 0.0,
+            )
+        assert attempts["n"] == 3
