@@ -28,10 +28,15 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents.cluster_profiles import AGENT_NAME as CLUSTER_PROFILE_AGENT
 from app.agents.cluster_profiles import describe_clusters
+from app.agents.critic import AGENT_NAME as CRITIC_AGENT
+from app.agents.critic import review_run
 from app.agents.feature_strategy import AGENT_NAME as FEATURE_STRATEGY_AGENT
 from app.agents.feature_strategy import make_strategy
 from app.agents.planner import AGENT_NAME as PLANNER_AGENT
 from app.agents.planner import make_plan
+from app.agents.report_writer import AGENT_NAME as REPORT_WRITER_AGENT
+from app.agents.report_writer import write_narrative
+from app.agents.summaries import summarise_run
 from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.llm.factory import get_optional_llm
@@ -43,6 +48,7 @@ from app.ml.evaluation import build_evaluation_report
 from app.ml.explain import ExplainabilityError, ExplainabilityResult, explain_model
 from app.ml.final_training import train_final_model
 from app.ml.modeling import run_leaderboard
+from app.ml.pdf import PdfError, render_pdf
 from app.ml.plots import render_charts
 from app.ml.preprocessing import build_preprocessor
 from app.ml.report import build_markdown_report
@@ -53,6 +59,7 @@ from app.services.artifacts import (
     CLEANED_DATASET_ARTIFACT,
     CLEANING_ARTIFACT,
     CLUSTERING_ARTIFACT,
+    CRITIC_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     EXPLAINABILITY_ARTIFACT,
@@ -60,10 +67,12 @@ from app.services.artifacts import (
     FINAL_MODEL_ARTIFACT,
     FINAL_MODEL_INFO_ARTIFACT,
     LEADERBOARD_ARTIFACT,
+    NARRATIVE_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
     PREPROCESSOR_ARTIFACT,
     REPORT_ARTIFACT,
+    REPORT_PDF_ARTIFACT,
     register_bytes_artifact,
     register_json_artifact,
 )
@@ -432,9 +441,82 @@ def explainability_node(state: PipelineState) -> dict:
     return {"explainability": result.report}
 
 
-def report_node(state: PipelineState) -> dict:
-    """Write the Markdown report -- the thing a human actually reads."""
+def _run_summary(state: PipelineState):
+    """The shrunk view of the run that both Section 9 agents read (spec 6.3).
+
+    Built once and shared. Doing it twice would double the token spend on a
+    limit that is already the binding constraint, and would risk the critic and
+    the report reasoning about subtly different views of the same run.
+    """
+    return summarise_run(
+        budget_tokens=get_settings().llm_prompt_budget_tokens,
+        filename=state.get("filename", ""),
+        cleaning=state.get("cleaning_report"),
+        eda=state.get("eda_report"),
+        clustering=state.get("clustering_report"),
+        features=state.get("feature_strategy"),
+        preprocessing=state.get("preprocessing_spec"),
+        leaderboard=state.get("leaderboard"),
+        evaluation=state.get("evaluation"),
+        explainability=state.get("explainability"),
+        final_model=state.get("final_model_info"),
+    )
+
+
+def critic_node(state: PipelineState) -> dict:
+    """Review the whole run and record what is wrong with it (spec 7.11).
+
+    Runs after everything it reviews, and before the report that has to reflect
+    it. The measured findings are computed from the *artifacts* rather than the
+    summary, so a threshold check sees the real numbers even on a wide dataset
+    where the model cannot -- see ``agents/critic.py``.
+    """
     job_id = state["job_id"]
+    summary = _run_summary(state)
+
+    with SessionLocal() as db:
+        review = review_run(
+            summary,
+            leaderboard=state.get("leaderboard"),
+            evaluation=state.get("evaluation"),
+            clustering=state.get("clustering_report"),
+            explainability=state.get("explainability"),
+            features=state.get("feature_strategy"),
+            client=get_optional_llm(),
+            on_usage=make_usage_recorder(db, job_id, CRITIC_AGENT),
+        )
+        register_json_artifact(db, job_id, CRITIC_ARTIFACT, review)
+        db.commit()
+
+    return {"critic": review, "run_summary": summary}
+
+
+def report_node(state: PipelineState) -> dict:
+    """Write the report: the model's prose around the code's numbers (spec 7.12).
+
+    Three artifacts, deliberately. ``narrative_report.json`` is what the model
+    wrote and nothing else, so a reader can see which sentences came from a model
+    without diffing two documents; ``report.md`` is the assembled document; and
+    ``report.pdf`` is the same document rendered.
+
+    The PDF is best-effort. A rendering failure at the very end of a pipeline run
+    must not discard the Markdown that is already correct -- and the failure is
+    recorded rather than swallowed, because a missing PDF with no explanation
+    looks like the pipeline stopping early.
+    """
+    job_id = state["job_id"]
+    summary = state.get("run_summary") or _run_summary(state)
+
+    with SessionLocal() as db:
+        narrative = write_narrative(
+            summary,
+            critic=state.get("critic"),
+            client=get_optional_llm(),
+            on_usage=make_usage_recorder(db, job_id, REPORT_WRITER_AGENT),
+        )
+        register_json_artifact(db, job_id, NARRATIVE_ARTIFACT, narrative)
+        db.commit()
+
     markdown = build_markdown_report(
         filename=state.get("filename", "dataset.csv"),
         plan=state["plan"],
@@ -448,6 +530,8 @@ def report_node(state: PipelineState) -> dict:
         leaderboard=state.get("leaderboard"),
         final_model=state.get("final_model_info"),
         explainability=state.get("explainability"),
+        narrative=narrative,
+        critic=state.get("critic"),
         sampling_note=state.get("sampling_note", ""),
     )
     with SessionLocal() as db:
@@ -460,7 +544,35 @@ def report_node(state: PipelineState) -> dict:
             kind=ArtifactKind.REPORT,
         )
         db.commit()
-    return {"report_markdown": markdown}
+
+    _store_pdf(job_id, markdown, state.get("filename", "dataset.csv"))
+    return {"report_markdown": markdown, "narrative": narrative}
+
+
+def _store_pdf(job_id: int, markdown: str, filename: str) -> None:
+    """Render and store the PDF, or log why there is none.
+
+    Deliberately not allowed to fail the node. The Markdown report is the
+    authoritative document and is already saved by the time this runs; losing a
+    completed run because a rendering library could not find a font would be a
+    poor trade.
+    """
+    try:
+        data = render_pdf(markdown, title=f"AutoDS analysis of {filename}")
+    except PdfError as exc:
+        logger.warning("[job %s] the report PDF could not be rendered: %s", job_id, exc)
+        return
+
+    with SessionLocal() as db:
+        register_bytes_artifact(
+            db,
+            job_id,
+            REPORT_PDF_ARTIFACT,
+            data,
+            content_type="application/pdf",
+            kind=ArtifactKind.REPORT,
+        )
+        db.commit()
 
 
 NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
@@ -475,6 +587,7 @@ NODE_FUNCTIONS: dict[str, Callable[[PipelineState], dict]] = {
     "evaluation": evaluation_node,
     "final_training": final_training_node,
     "explainability": explainability_node,
+    "critic": critic_node,
     "report": report_node,
 }
 

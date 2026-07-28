@@ -36,6 +36,7 @@ from app.core.storage import StorageError
 from app.ml.contracts import (
     CleaningReport,
     ClusteringReport,
+    CriticReport,
     EdaReport,
     EvaluationReport,
     ExplainabilityReport,
@@ -47,6 +48,7 @@ from app.models.job import Job
 from app.services.artifacts import (
     CLEANING_ARTIFACT,
     CLUSTERING_ARTIFACT,
+    CRITIC_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     EXPLAINABILITY_ARTIFACT,
@@ -54,6 +56,7 @@ from app.services.artifacts import (
     FINAL_MODEL_INFO_ARTIFACT,
     LEADERBOARD_ARTIFACT,
     REPORT_ARTIFACT,
+    REPORT_PDF_ARTIFACT,
     load_artifact_bytes,
     load_artifact_content,
     load_json_artifact,
@@ -238,6 +241,65 @@ def predict(
         ],
         missing_columns=outcome.missing_columns,
         unexpected_columns=outcome.unexpected_columns,
+    )
+
+
+@router.get(
+    "/jobs/{job_id}/critic",
+    response_model=CriticReport,
+    summary="The review of the whole run, worst finding first",
+)
+def get_critic(job_id: int, db: Session = Depends(get_db)) -> CriticReport:
+    """The critique (spec 7.11).
+
+    ``omissions`` is part of the contract, not an aside: on a wide dataset the
+    reviewer saw a capped summary, and a critique that looks complete when it is
+    not would be worse than none.
+    """
+    return CriticReport.model_validate(_load_or_404(db, job_id, CRITIC_ARTIFACT))
+
+
+@router.get(
+    "/jobs/{job_id}/report/pdf",
+    summary="The report as a PDF",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_report_pdf(job_id: int, db: Session = Depends(get_db)) -> Response:
+    """Serve the rendered report (spec 7.12).
+
+    Separate from ``/report`` rather than a format parameter: they return
+    different media types with different caching and download behaviour, and one
+    endpoint that returns either is one endpoint a client has to branch on.
+
+    A 404 here can mean the run has not reached the report yet *or* that
+    rendering failed on a run that otherwise completed -- the PDF is best-effort
+    precisely so a font problem cannot discard a finished analysis. The Markdown
+    at ``/report`` is the authoritative document either way.
+    """
+    _require_job(db, job_id)
+    try:
+        data = load_artifact_bytes(db, job_id, REPORT_PDF_ARTIFACT)
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage is unavailable."
+        ) from exc
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Job {job_id} has no PDF report. It may still be running, or "
+                "rendering may have failed -- the Markdown report at /report is "
+                "the authoritative version."
+            ),
+        )
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Cache-Control": _CACHE_CONTROL,
+            "Content-Disposition": f'attachment; filename="autods_job_{job_id}_report.pdf"',
+        },
     )
 
 

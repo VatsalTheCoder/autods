@@ -606,6 +606,37 @@ class CriticReport(BaseModel):
         return sorted(self.findings, key=lambda f: order.get(f.severity, 3))
 
 
+class NarrativeReport(BaseModel):
+    """The prose half of the final report (spec 7.12) -- and only the prose.
+
+    The division here is the one thing that keeps an LLM-written report
+    trustworthy: **the model writes sentences, the code supplies numbers.** Every
+    figure in the finished document is formatted by ``ml/report.py`` from the
+    artifacts, and these fields are woven around them. A report that hallucinates
+    a metric is worse than no report, and the cheapest way to guarantee it cannot
+    is to never ask a model for one.
+
+    Section 5 built the whole report deterministically for exactly this reason
+    and said the Report Agent would replace its prose. This is that replacement:
+    the tables, folds and metrics are untouched.
+    """
+
+    executive_summary: str = ""
+    # What the dataset is like, in prose, for a reader who will not read a table.
+    data_story: str = ""
+    # Why this model, and what its score does and does not establish.
+    model_story: str = ""
+    # What the reader should do next, in their own terms rather than the
+    # pipeline's. Distinct from the critic's recommendations, which are about the
+    # run; these are about the problem.
+    recommendations: list[str] = Field(default_factory=list)
+
+    source: Literal["llm", "default"] = "default"
+
+    def is_empty(self) -> bool:
+        return not (self.executive_summary or self.data_story or self.model_story)
+
+
 # ---- EDA (Section 6) --------------------------------------------------------
 
 

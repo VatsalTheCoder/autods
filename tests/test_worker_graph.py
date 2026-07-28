@@ -25,6 +25,8 @@ def test_pipeline_is_the_expected_sequence():
     # each column should be prepared is a separate act from building the recipe.
     # Section 8 adds the refit and its explanation between evaluation and the
     # report, so the report is written with both of them available to describe.
+    # Section 9 puts the critic immediately before the report, so the report can
+    # reflect the review rather than append it.
     assert PIPELINE_NODES == [
         "planner",
         "cleaning",
@@ -37,6 +39,7 @@ def test_pipeline_is_the_expected_sequence():
         "evaluation",
         "final_training",
         "explainability",
+        "critic",
         "report",
     ]
 
@@ -67,3 +70,14 @@ def test_every_node_has_a_real_implementation():
 def test_graph_compiles_to_something_invocable():
     compiled = build_pipeline_graph()
     assert hasattr(compiled, "invoke")
+
+
+def test_the_report_is_written_after_the_review_of_it():
+    """Order is the design, not an accident (spec 7.11, 7.12).
+
+    A report written before its own critique could only bolt the findings on at
+    the end. The executive summary is exactly where a blocker needs to appear,
+    and that is only possible if the critic has already run.
+    """
+    assert PIPELINE_NODES.index("critic") < PIPELINE_NODES.index("report")
+    assert PIPELINE_NODES.index("explainability") < PIPELINE_NODES.index("critic")

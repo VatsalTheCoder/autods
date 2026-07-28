@@ -37,15 +37,18 @@ from app.services.artifacts import (
     CLEANED_DATASET_ARTIFACT,
     CLEANING_ARTIFACT,
     CLUSTERING_ARTIFACT,
+    CRITIC_ARTIFACT,
     EDA_ARTIFACT,
     EVALUATION_ARTIFACT,
     EXPLAINABILITY_ARTIFACT,
     FINAL_MODEL_ARTIFACT,
     FINAL_MODEL_INFO_ARTIFACT,
+    NARRATIVE_ARTIFACT,
     PLANNER_ARTIFACT,
     PREPROCESSING_ARTIFACT,
     PREPROCESSOR_ARTIFACT,
     REPORT_ARTIFACT,
+    REPORT_PDF_ARTIFACT,
     load_artifact_bytes,
     load_json_artifact,
 )
@@ -153,6 +156,7 @@ class TestSuccessfulRun:
             "modeling",
             "final_training",
             "explainability",
+            "critic",
             "report",
         ):
             assert runs[name].status is AgentRunStatus.COMPLETED, name
@@ -180,6 +184,8 @@ class TestArtifacts:
             EVALUATION_ARTIFACT,
             FINAL_MODEL_INFO_ARTIFACT,
             EXPLAINABILITY_ARTIFACT,
+            CRITIC_ARTIFACT,
+            NARRATIVE_ARTIFACT,
         ],
     )
     def test_json_artifacts_are_registered_and_readable(self, completed_job, name):
@@ -257,6 +263,32 @@ class TestArtifacts:
         # And the encoded names it was translated from are published alongside.
         assert "city_London" in payload["feature_name_mapping"]
         assert payload["feature_name_mapping"]["city_London"] == "city"
+
+    def test_the_report_is_also_rendered_as_a_pdf(self, completed_job):
+        """Section 9's "Done when": a multi-section document, not a text file."""
+        with SessionLocal() as db:
+            data = load_artifact_bytes(db, completed_job, REPORT_PDF_ARTIFACT)
+        assert data is not None, "no PDF was produced"
+        assert data.startswith(b"%PDF-")
+        assert len(data) > 5_000, "a multi-section report should not be this small"
+
+    def test_the_review_reaches_the_report(self, completed_job):
+        """The critic exists to be read, so it has to appear in what is read."""
+        with SessionLocal() as db:
+            critic = load_json_artifact(db, completed_job, CRITIC_ARTIFACT)
+            markdown = load_artifact_bytes(db, completed_job, REPORT_ARTIFACT).decode("utf-8")
+
+        assert critic["verdict"], "the review reached no verdict"
+        assert "## What the review found" in markdown
+
+    def test_the_narrative_is_stored_apart_from_the_report(self, completed_job):
+        """So a reader can tell which sentences a model wrote (spec 7.12)."""
+        with SessionLocal() as db:
+            narrative = load_json_artifact(db, completed_job, NARRATIVE_ARTIFACT)
+        assert narrative is not None
+        # No key in the test environment, so the prose is absent and the
+        # deterministic report stands -- which is the behaviour being asserted.
+        assert narrative["source"] == "default"
 
     def test_the_report_explains_the_model_and_names_what_is_served(self, completed_job):
         with SessionLocal() as db:

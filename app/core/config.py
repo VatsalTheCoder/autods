@@ -178,6 +178,20 @@ class Settings(BaseSettings):
     # not more convincing than three.
     shap_local_examples: int = 3
 
+    # ---- Critic & report (Section 9) -------------------------------------
+    # How many tokens a summarised run may occupy in one prompt. Derived, not
+    # picked: the free tier's binding limit is 15,000 *input tokens per minute*,
+    # and the Critic and Report both run inside the same minute. Two prompts at
+    # this size leave room for the system prompts, the schema hints and the
+    # critic's findings being passed on to the report -- and still sit under the
+    # cap with margin, which matters because the estimate is a 4-chars-per-token
+    # approximation rather than the provider's own count.
+    #
+    # Measured for scale: the raw artifacts of a 121-column run come to ~24,000
+    # tokens, so this is not a comfortable ceiling that never binds. It is the
+    # reason `agents/summaries.py` exists.
+    llm_prompt_budget_tokens: int = 6000
+
     # ---- EDA & clustering (Section 6) -----------------------------------
     # The range of k the silhouette search tries. Two is the smallest number of
     # groups that means anything; beyond about eight, "natural groupings" stop

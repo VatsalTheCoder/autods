@@ -23,11 +23,13 @@ from __future__ import annotations
 from app.ml.contracts import (
     CleaningReport,
     ClusteringReport,
+    CriticReport,
     EdaReport,
     EvaluationReport,
     ExplainabilityReport,
     FinalModelInfo,
     Leaderboard,
+    NarrativeReport,
     PlannerPlan,
     PreprocessingSpec,
 )
@@ -59,6 +61,8 @@ def build_markdown_report(
     leaderboard: Leaderboard | None = None,
     final_model: FinalModelInfo | None = None,
     explainability: ExplainabilityReport | None = None,
+    narrative: NarrativeReport | None = None,
+    critic: CriticReport | None = None,
     sampling_note: str = "",
 ) -> str:
     """Assemble the job's report from its artifacts.
@@ -70,28 +74,120 @@ def build_markdown_report(
     """
     sections = [
         _heading(filename, evaluation),
+        # Section 9's prose, where a reader starts. Written by a model that was
+        # never shown a number and never asked for one -- see ``report_writer``.
+        _executive_summary(narrative),
         _headline(evaluation),
         _methodology(evaluation),
         _metrics_table(evaluation),
         _leaderboard_table(leaderboard),
+        _model_story(narrative),
         _folds_table(evaluation),
         _why_it_predicts(explainability),
         _data_quality(cleaning),
-        _what_the_data_looks_like(eda),
+        _what_the_data_looks_like(eda, narrative),
         _groups(clustering),
         _preparation(plan, preprocessing, sampling_note),
         _served_model(final_model),
+        _review(critic),
+        _recommendations(narrative),
         _caveats(evaluation),
         _limitations(),
     ]
     return "\n\n".join(section.strip() for section in sections if section.strip()) + "\n"
 
 
-def _what_the_data_looks_like(eda: EdaReport | None) -> str:
+def _executive_summary(narrative: NarrativeReport | None) -> str:
+    """The model's orientation, above everything it describes.
+
+    Absent entirely when no model wrote one -- rather than a generated stand-in,
+    which would be this module restating its own tables in worse English.
+    """
+    if narrative is None or not narrative.executive_summary:
+        return ""
+    return f"## In short\n\n{narrative.executive_summary}"
+
+
+def _model_story(narrative: NarrativeReport | None) -> str:
+    """What the scores above mean, placed directly under them."""
+    if narrative is None or not narrative.model_story:
+        return ""
+    return narrative.model_story
+
+
+def _recommendations(narrative: NarrativeReport | None) -> str:
+    """What to do about the problem, as distinct from what to do about the run."""
+    if narrative is None or not narrative.recommendations:
+        return ""
+    lines = ["## What to do next", ""]
+    lines += [f"- {item}" for item in narrative.recommendations]
+    return "\n".join(lines)
+
+
+def _review(critic: CriticReport | None) -> str:
+    """The critic's findings, worst first (spec 7.11).
+
+    Included in full rather than summarised, and placed *before* the caveats
+    rather than in an appendix. A review that has to be gone looking for is not
+    performing the function it was added for.
+
+    Measured findings are marked as such. A threshold result and a model's
+    opinion are both worth reading and are not worth the same, and a reader
+    cannot tell them apart from the prose alone.
+    """
+    if critic is None or (not critic.findings and not critic.verdict):
+        return ""
+
+    lines = ["## What the review found", ""]
+    if critic.verdict:
+        lines += [critic.verdict, ""]
+
+    if critic.strengths:
+        lines.append("**Held up well:**")
+        lines += [f"- {item}" for item in critic.strengths]
+        lines.append("")
+
+    if critic.findings:
+        lines += ["| Severity | Area | Finding | Recommendation |", "| --- | --- | --- | --- |"]
+        for finding in critic.by_severity():
+            source = " *(measured)*" if finding.measured else ""
+            lines.append(
+                f"| {finding.severity} | {finding.area} | {finding.finding}{source} "
+                f"| {finding.recommendation or '—'} |"
+            )
+        lines.append("")
+
+    if critic.recommended_next_steps:
+        lines.append("**The reviewer suggests:**")
+        lines += [f"- {item}" for item in critic.recommended_next_steps]
+        lines.append("")
+
+    # The limits of the review itself. A critique of a capped summary is a
+    # critique of part of the run, and saying so is the whole reason the
+    # summariser tracks its own omissions.
+    if critic.omissions:
+        lines.append("The review did not see everything:")
+        lines += [f"- {note}" for note in critic.omissions]
+        lines.append("")
+
+    if critic.source == "default":
+        lines.append(
+            "*These findings are automated threshold checks, not a written review: "
+            "no language model was available for this run.*"
+        )
+
+    return "\n".join(lines)
+
+
+def _what_the_data_looks_like(
+    eda: EdaReport | None, narrative: NarrativeReport | None = None
+) -> str:
     """The descriptive findings a reader wants before trusting a score."""
     if eda is None:
         return ""
     lines = ["## What the data looks like", ""]
+    if narrative is not None and narrative.data_story:
+        lines += [narrative.data_story, ""]
 
     if eda.class_balance:
         balance = eda.class_balance

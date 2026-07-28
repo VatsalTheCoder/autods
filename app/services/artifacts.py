@@ -67,7 +67,13 @@ FINAL_MODEL_ARTIFACT = "final_model.pkl"
 FINAL_MODEL_INFO_ARTIFACT = "final_model.json"
 # Section 8. SHAP over that model, in the user's own column names (spec 7.10).
 EXPLAINABILITY_ARTIFACT = "explainability_report.json"
+# Section 9. The review of the whole run, and the report's prose kept separately
+# from the report itself -- so a reader can see exactly which sentences a model
+# wrote and which came from the data (spec 7.11, 7.12).
+CRITIC_ARTIFACT = "critic_report.json"
+NARRATIVE_ARTIFACT = "narrative_report.json"
 REPORT_ARTIFACT = "report.md"
+REPORT_PDF_ARTIFACT = "report.pdf"
 
 
 def register_bytes_artifact(
