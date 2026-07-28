@@ -527,6 +527,85 @@ class ExplainabilityReport(BaseModel):
         return self.global_importance[:limit]
 
 
+# ---- The critic (Section 9) -------------------------------------------------
+
+# Where a finding lands. A closed set for the same reason every other LLM-facing
+# vocabulary here is closed: a critique filed under an invented heading cannot be
+# grouped, counted or acted on.
+CriticArea = Literal[
+    "data_quality",
+    "features",
+    "modelling",
+    "evaluation",
+    "explainability",
+    "deployment",
+]
+
+# How much the finding should worry a reader. Deliberately three levels: a scale
+# of five invites the model to split hairs it has no basis for.
+CriticSeverity = Literal["blocker", "concern", "note"]
+
+
+class CriticFinding(BaseModel):
+    """One thing the review found, and what to do about it.
+
+    ``recommendation`` is required in spirit -- a finding with no suggested action
+    is a complaint. The spec asks the critic to "recommend simpler models,
+    alternative strategies, or additional validation" (7.11), all of which are
+    actions, not observations.
+    """
+
+    area: CriticArea
+    severity: CriticSeverity
+    finding: str
+    recommendation: str = ""
+
+    # True when the finding came from a threshold in code rather than from the
+    # model. Recorded because the two carry different weight: a measured finding
+    # is checkable against the artifacts, and a written one is an opinion about
+    # them. A reader deserves to know which they are looking at.
+    measured: bool = False
+
+
+class CriticReport(BaseModel):
+    """``critic_report.json`` -- the review of the whole run (spec 7.11).
+
+    The one agent whose job is to argue with the rest of the pipeline. Two design
+    choices keep that useful rather than decorative:
+
+    * **It is grounded in measurements.** Findings that code can derive from
+      thresholds are computed first and handed to the model as established fact.
+      The model may add to them and must not contradict them, which is the same
+      arrangement that keeps the cluster profiler honest -- it describes measured
+      differences rather than inventing them.
+    * **It records what it could not see.** A wide dataset's summary is capped
+      (``agents/summaries.py``), so a review of it is a review of part of the run.
+      ``omissions`` carries that forward into the artifact, because a critique
+      that looks complete and is not would be worse than no critique.
+    """
+
+    verdict: str = ""
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+    strengths: list[str] = Field(default_factory=list)
+    findings: list[CriticFinding] = Field(default_factory=list)
+    recommended_next_steps: list[str] = Field(default_factory=list)
+
+    # "llm" only when the model was consulted *and* replied usably; a review that
+    # is entirely the measured findings must not be presented as a written one.
+    source: Literal["llm", "default"] = "default"
+    # Which summarisation tier fed the review, and what it left out.
+    detail_level: str = ""
+    omissions: list[str] = Field(default_factory=list)
+
+    def blockers(self) -> list[CriticFinding]:
+        return [f for f in self.findings if f.severity == "blocker"]
+
+    def by_severity(self) -> list[CriticFinding]:
+        order = {"blocker": 0, "concern": 1, "note": 2}
+        return sorted(self.findings, key=lambda f: order.get(f.severity, 3))
+
+
 # ---- EDA (Section 6) --------------------------------------------------------
 
 
