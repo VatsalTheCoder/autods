@@ -30,7 +30,7 @@ import logging
 
 from app.agents.summaries import RunSummary
 from app.core.llm.base import LLMClient, LLMError, ModelTier, UsageCallback, system, user
-from app.core.llm.structured import structured_complete
+from app.core.llm.structured import structured_complete_tiered
 from app.ml.contracts import CriticReport, NarrativeReport
 
 logger = logging.getLogger(__name__)
@@ -78,13 +78,16 @@ def write_narrative(
         return NarrativeReport(source="default")
 
     try:
-        result = structured_complete(
+        result = structured_complete_tiered(
             client,
             [system(_SYSTEM), user(_prompt(summary, critic))],
             NarrativeReport,
-            # The large tier, per spec 6.1: this and the critic are the two
-            # reasoning tasks in the pipeline.
-            tier=ModelTier.LARGE,
+            # The large tier first, per spec 6.1: this and the critic are the
+            # two reasoning tasks in the pipeline. Stepping down to the small one
+            # when rate limited, because the alternative is the Section 5 report
+            # with no prose at all -- and these two agents are why the large
+            # model's quota runs out first.
+            tiers=(ModelTier.LARGE, ModelTier.SMALL),
             on_usage=on_usage,
         )
     except LLMError as exc:

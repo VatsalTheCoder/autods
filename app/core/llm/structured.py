@@ -28,6 +28,7 @@ Section 7 rejects hallucinated feature names.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -39,13 +40,17 @@ from app.core.llm.base import (
     ChatMessage,
     GenerationParams,
     LLMClient,
+    LLMError,
     LLMResponse,
     ModelTier,
+    RateLimitError,
     StructuredOutputError,
     UsageCallback,
     assistant,
     user,
 )
+
+logger = logging.getLogger(__name__)
 
 # Matches a ```json ... ``` (or bare ``` ... ```) fenced block. Open models wrap
 # JSON in these constantly; stripping the fence first avoids a spurious parse
@@ -172,6 +177,56 @@ def structured_complete[T: BaseModel](
         raw=last_raw,
         attempts=len(responses),
     )
+
+
+def structured_complete_tiered[T: BaseModel](
+    client: LLMClient,
+    messages: Sequence[ChatMessage],
+    response_model: type[T],
+    *,
+    tiers: Sequence[ModelTier],
+    params: GenerationParams | None = None,
+    max_retries: int | None = None,
+    on_usage: UsageCallback | None = None,
+) -> StructuredResult[T]:
+    """``structured_complete``, but stepping down a tier when rate limited.
+
+    The free tier the spec mandates has separate quotas per model, and the large
+    one runs out first because the two most expensive prompts in the project --
+    the critic and the report writer -- both use it. When that happens the choice
+    is between a smaller model's answer and no answer at all.
+
+    For agents with a deterministic fallback, no answer means the deterministic
+    output: a correct report with no prose, a review that is only threshold
+    checks. Those are honest, but they are also the two outputs a reader most
+    wants, so exhausting one model's minute-quota should not silently downgrade
+    the whole run when another model is sitting idle.
+
+    Only ``RateLimitError`` steps down. A malformed response or a provider
+    outage is not something a different model is likely to fix, and retrying
+    those across tiers would double the latency of a failure.
+    """
+    if not tiers:
+        raise ValueError("at least one tier is required")
+
+    last_error: LLMError | None = None
+    for tier in tiers:
+        try:
+            return structured_complete(
+                client,
+                messages,
+                response_model,
+                tier=tier,
+                params=params,
+                max_retries=max_retries,
+                on_usage=on_usage,
+            )
+        except RateLimitError as exc:
+            last_error = exc
+            logger.info("Rate limited on the %s tier; stepping down", tier.name.lower())
+
+    assert last_error is not None  # noqa: S101 - the loop ran at least once
+    raise last_error
 
 
 def response_to_message(response: LLMResponse) -> ChatMessage:
