@@ -12,7 +12,7 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.api.routes import results, upload
+from app.api.routes import chat, results, upload
 from app.core.config import get_settings
 from app.core.db import database_healthy
 from app.core.storage import storage_healthy
@@ -32,6 +32,7 @@ app = FastAPI(
 
 app.include_router(upload.router)
 app.include_router(results.router)
+app.include_router(chat.router)
 
 
 class HealthResponse(BaseModel):
