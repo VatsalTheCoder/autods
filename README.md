@@ -122,8 +122,18 @@ make clean       # stop and DELETE all data volumes
 Configuration comes entirely from environment variables. `docker compose` supplies
 them; copy `.env.example` to `.env` only if you run something directly on your host.
 
-There is an example dataset at `data/examples/customer_churn.csv` — 500 rows with mixed
-types, missing values, PII-shaped columns and a binary target.
+There are two example datasets, one for each task type:
+
+| File | Rows | Target | What it exercises |
+|---|---|---|---|
+| `data/examples/customer_churn.csv` | 500 | `churn` (binary) | Mixed types, missing values, PII-shaped columns, class imbalance |
+| `data/examples/house_prices.csv` | 606 | `sale_price` (continuous) | An identifier to drop, an ordinal grade, a date, 8-level categorical, ~12% missing, exact duplicates |
+
+Both are synthetic. The house-prices generator is committed at
+`scripts/make_house_prices.py` rather than only its output, so the generative
+relationship is inspectable — you can see that the signal is real, the noise deliberate,
+and nothing cherry-picked to flatter a model. Regenerate with
+`docker compose run --rm api python scripts/make_house_prices.py`.
 
 > **Do not keep this project in an iCloud-synced folder** (Desktop or Documents, if you
 > have iCloud Drive enabled). Containers cannot read files through the macOS file
