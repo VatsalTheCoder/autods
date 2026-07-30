@@ -5,11 +5,16 @@ cross-validated model, SHAP explanations of its behaviour, a written report, and
 to ask questions about all of it.
 
 A dozen specialised agents — cleaning, EDA, planning, feature engineering, modelling, critique,
-reporting — coordinated by LangGraph, using open-source LLMs only.
+reporting — coordinated by LangGraph. The language model makes decisions; ordinary Python carries
+them out.
 
-> **Status: planning complete, implementation starting.**
-> The architecture and build plan are settled; code begins at Section 0 of the build plan.
-> This README describes the intended system and will be updated as sections land.
+> **Status: 11 of 13 sections merged.** Milestones M1–M6 delivered. The pipeline runs end to end
+> against a live model — a 500-row classification job completes in about 60 seconds and a
+> 100,000-row one in about four minutes. What remains is deployment (Section 11, runbook written
+> and hosting outstanding) and the concentrated docs and testing pass (Section 12).
+>
+> See [the progress report](https://claude.ai/code/artifact/2fb6fa9c-b8bc-448e-b653-3145e3c02794)
+> for measured figures and what running it on real data turned up.
 
 ---
 
@@ -52,11 +57,25 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 | Orchestration | LangGraph |
 | Async | Celery + Redis |
 | Database | PostgreSQL + Alembic |
-| Vector store | ChromaDB |
+| Vector store | pgvector, in the Postgres already running |
 | ML | scikit-learn, XGBoost, LightGBM, imbalanced-learn, kmodes |
 | Explainability | SHAP |
-| LLMs | Open-source models, structured output via Pydantic |
+| LLMs | Gemini via Google AI Studio, structured output via Pydantic |
 | Infrastructure | Docker Compose, S3, AWS Secrets Manager, EC2 |
+
+Two of those differ from the spec, deliberately, and both are one setting away from being changed
+back:
+
+**pgvector rather than ChromaDB.** The spec locks ChromaDB and documents pgvector as the sanctioned
+fallback. Taking the fallback removes a container and, on AWS, removes the persistent EBS volume
+that container would have needed — the embeddings live in the database that is already running.
+
+**Gemini rather than Gemma.** The spec's `gemma-3-*` model ids no longer exist (404), and the
+smallest Gemma now served is a 26B MoE. Measured on the feature-strategy prompt:
+`gemini-3.1-flash-lite` answered in 1.6s and succeeded 3 times out of 3; `gemma-4-26b-a4b-it` took
+42s and failed 4 times out of 5 against the 60-second timeout, silently degrading every agent to
+its deterministic fallback. Model ids are environment variables precisely so a self-hosted or Gemma
+deployment needs no code change — which is the property the spec was protecting.
 
 ---
 
@@ -67,6 +86,7 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 | [AutoDS_v4_Final_Portfolio_Spec.md](AutoDS_v4_Final_Portfolio_Spec.md) | Full architecture, agent designs, and design decisions |
 | [BUILD_PLAN.md](BUILD_PLAN.md) | 13 sections across ~24 weeks, with exit criteria for each |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Bringing the stack up from cold, measured demo timings, troubleshooting |
+| [docs/related-work.md](docs/related-work.md) | Positioning against the similarly-named CHI '21 system by Wang et al. |
 
 ---
 
@@ -78,13 +98,16 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 - [x] **Section 3** — Schema detection and the human checkpoint
 - [x] **Section 4** — Background worker: Celery, LangGraph, progress tracking
 - [x] **Section 5** — Vertical slice: end-to-end demo *(milestone M1)*
-- [x] **Section 6** — EDA and clustering
-- [x] **Section 7** — Feature engineering
+- [x] **Section 6** — EDA and clustering *(milestone M2)*
+- [x] **Section 7** — Feature engineering *(milestone M3)*
 - [x] **Section 8** — Final training, SHAP, prediction *(milestone M4)*
 - [x] **Section 9** — Critic and report *(milestone M5)*
 - [x] **Section 10** — RAG chat *(milestone M6)*
-- [ ] **Section 11** — AWS deployment
-- [ ] **Section 12** — Testing and documentation
+- [ ] **Section 11** — AWS deployment *(milestone M7)* — runbook written, hosting outstanding
+- [ ] **Section 12** — Testing and documentation — end-to-end tests now run in CI; diagrams outstanding
+
+This list is maintained by hand in three places — here, the app's landing page, and the progress
+report — so if they ever disagree, the repository is the one to trust.
 
 ---
 
@@ -100,9 +123,23 @@ colima start --cpu 4 --memory 4 --disk 40
 Then bring up the stack:
 
 ```bash
+cp .env.example .env
+$EDITOR .env     # set GOOGLE_API_KEY -- see below, this one matters
+
 make up          # starts postgres, redis, minio, api, worker, ui
+make migrate     # NOT automatic; the first upload fails without it
 make health      # confirm everything is reachable
 ```
+
+**`make migrate` is a separate step and nothing reminds you.** Postgres starts empty and the health
+check reports `database: true` against it, because it checks connectivity rather than schema. So
+the stack looks fine and the *first upload* is what fails.
+
+**The key is needed even under Docker.** Compose reads `.env` to interpolate `GOOGLE_API_KEY` but
+does not otherwise inject the file, so without it the stack still starts and every agent quietly
+takes its deterministic fallback — which looks exactly like a working system producing worse
+output. The confirmation screen after an upload shows `llm_enriched: true` when the model really
+ran.
 
 | Service | URL |
 |---|---|
@@ -120,8 +157,10 @@ make down        # stop (data is preserved)
 make clean       # stop and DELETE all data volumes
 ```
 
-Configuration comes entirely from environment variables. `docker compose` supplies
-them; copy `.env.example` to `.env` only if you run something directly on your host.
+Configuration comes entirely from environment variables. `docker compose` supplies most of them
+directly; `.env` is where the API key and any per-machine overrides live, and it is gitignored.
+[docs/RUNBOOK.md](docs/RUNBOOK.md) covers the cold start in more detail, including the failure
+modes that look like bugs and are not.
 
 There are two example datasets, one for each task type:
 
