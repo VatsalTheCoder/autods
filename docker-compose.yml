@@ -111,6 +111,13 @@ services:
       # the committed behaviour is unchanged when .env says nothing.
       LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemini-3.1-flash-lite}
       LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemini-3.5-flash}
+      # How many rows reach model fitting. The default (20,000) is ample for a
+      # balanced dataset, but on a severely imbalanced one it is the binding
+      # constraint on signal rather than on time: stratified sampling preserves
+      # the *ratio*, so 20,000 rows of a 0.13%-fraud dataset leaves ~26 positive
+      # examples. Overridable per-run so a rare-event dataset can keep its
+      # minority class without editing code.
+      MAX_MODELLING_ROWS: ${MAX_MODELLING_ROWS:-20000}
     ports:
       - "8000:8000"
     volumes:
@@ -168,6 +175,13 @@ services:
       # the committed behaviour is unchanged when .env says nothing.
       LLM_MODEL_SMALL: ${LLM_MODEL_SMALL:-gemini-3.1-flash-lite}
       LLM_MODEL_LARGE: ${LLM_MODEL_LARGE:-gemini-3.5-flash}
+      # How many rows reach model fitting. The default (20,000) is ample for a
+      # balanced dataset, but on a severely imbalanced one it is the binding
+      # constraint on signal rather than on time: stratified sampling preserves
+      # the *ratio*, so 20,000 rows of a 0.13%-fraud dataset leaves ~26 positive
+      # examples. Overridable per-run so a rare-event dataset can keep its
+      # minority class without editing code.
+      MAX_MODELLING_ROWS: ${MAX_MODELLING_ROWS:-20000}
     volumes:
       - ./app:/code/app
     depends_on:
