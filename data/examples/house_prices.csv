@@ -1,0 +1,607 @@
+listing_id,agent_email,listed_date,neighbourhood,property_type,area_sqft,bedrooms,bathrooms,year_built,epc_rating,condition_rating,distance_to_station_km,sale_price
+LST-00001,agent25@example-estates.com,2023-12-25,Riverside,terraced,941,2,1,1992,D,5.0,0.1,314500
+LST-00002,agent29@example-estates.com,2024-04-15,Riverside,terraced,865,3,2,1967,F,1.0,0.46,211600
+LST-00003,agent29@example-estates.com,2023-03-20,Eastfield,flat,562,1,1,1911,D,5.0,1.46,85000
+LST-00004,agent17@example-estates.com,2023-11-02,Parkview,flat,633,1,1,1964,E,4.0,3.21,116900
+LST-00005,agent6@example-estates.com,2024-09-14,Eastfield,terraced,1201,2,1,1929,D,4.0,0.42,178800
+LST-00006,agent4@example-estates.com,2023-12-03,Meadowbank,detached,1853,4,2,1987,C,4.0,2.92,455700
+LST-00007,agent6@example-estates.com,2024-05-03,Old Town,flat,608,1,1,1902,F,1.0,0.84,89900
+LST-00008,agent15@example-estates.com,2023-03-03,Northgate,flat,518,2,1,2018,F,,0.5,95000
+LST-00009,agent6@example-estates.com,2023-04-09,Parkview,terraced,1044,2,1,2007,E,1.0,1.61,197200
+LST-00010,agent6@example-estates.com,2024-02-03,Docklands,terraced,911,2,2,2002,C,4.0,1.31,131500
+LST-00011,agent18@example-estates.com,2024-08-08,Meadowbank,semi-detached,1449,4,2,1911,D,3.0,1.17,290400
+LST-00012,agent2@example-estates.com,2024-08-13,Parkview,flat,567,1,1,1981,C,2.0,2.11,159800
+LST-00013,agent25@example-estates.com,2023-06-22,Meadowbank,terraced,1123,3,2,1989,C,2.0,1.44,199500
+LST-00014,agent12@example-estates.com,2024-09-20,Meadowbank,detached,1841,5,3,1918,B,5.0,3.43,417600
+LST-00015,agent7@example-estates.com,2024-02-25,Meadowbank,flat,718,2,1,1907,E,2.0,1.9,98700
+LST-00016,agent25@example-estates.com,2024-11-22,Meadowbank,flat,810,1,1,1942,C,4.0,0.66,115700
+LST-00017,agent28@example-estates.com,2024-06-06,Parkview,detached,1305,3,1,1919,D,,0.55,233000
+LST-00018,agent7@example-estates.com,2024-09-02,Northgate,terraced,961,2,1,1903,E,4.0,5.23,94500
+LST-00019,agent8@example-estates.com,2023-02-02,Industrial Park,terraced,702,2,1,1914,F,2.0,2.97,68700
+LST-00020,agent7@example-estates.com,2024-10-04,Meadowbank,flat,609,1,1,2000,F,4.0,2.01,99800
+LST-00021,agent36@example-estates.com,2023-06-19,Docklands,flat,523,1,1,1965,D,4.0,1.07,76700
+LST-00022,agent32@example-estates.com,2024-07-29,Docklands,flat,692,2,2,1900,E,5.0,1.06,122900
+LST-00023,agent18@example-estates.com,2024-07-27,Eastfield,terraced,917,2,1,2011,E,4.0,2.77,133200
+LST-00024,agent22@example-estates.com,2024-04-06,Old Town,detached,1370,3,2,2017,D,5.0,1.28,433700
+LST-00025,agent35@example-estates.com,2023-05-27,Old Town,terraced,1065,2,1,1925,E,1.0,4.96,175100
+LST-00026,agent11@example-estates.com,2024-06-01,Parkview,flat,500,1,1,1933,B,3.0,0.53,88200
+LST-00027,agent2@example-estates.com,2024-01-28,Old Town,detached,1413,3,1,1998,C,,2.58,444800
+LST-00028,agent21@example-estates.com,2023-06-03,Eastfield,detached,1654,3,2,1890,D,,0.93,332500
+LST-00029,agent35@example-estates.com,2024-06-23,Meadowbank,flat,763,2,1,1952,C,4.0,0.52,112600
+LST-00030,agent9@example-estates.com,2023-03-22,Eastfield,terraced,918,3,2,1981,E,1.0,7.16,142400
+LST-00031,agent37@example-estates.com,2024-07-01,Northgate,terraced,1038,3,1,1930,D,5.0,0.67,155600
+LST-00032,agent1@example-estates.com,2024-11-04,Meadowbank,semi-detached,1180,3,2,1968,A,5.0,1.24,294900
+LST-00033,agent17@example-estates.com,2024-09-14,Docklands,flat,641,2,1,2003,D,,1.65,101600
+LST-00034,agent22@example-estates.com,2023-01-21,Northgate,flat,370,1,2,1936,E,2.0,0.19,68700
+LST-00035,agent18@example-estates.com,2024-04-06,Meadowbank,terraced,1077,2,1,1943,B,2.0,1.96,168900
+LST-00036,agent12@example-estates.com,2023-03-14,Docklands,terraced,695,2,1,1993,D,1.0,0.27,128300
+LST-00037,agent16@example-estates.com,2024-09-15,Meadowbank,flat,581,2,1,1999,E,2.0,1.02,119500
+LST-00038,agent4@example-estates.com,2023-07-24,Northgate,semi-detached,1094,2,1,1957,E,3.0,2.06,172900
+LST-00039,agent30@example-estates.com,2024-08-05,Docklands,detached,1063,1,1,1891,D,1.0,1.75,142400
+LST-00040,agent33@example-estates.com,2023-01-26,Northgate,flat,766,3,2,1986,B,,4.57,87000
+LST-00041,agent36@example-estates.com,2023-04-03,Riverside,flat,664,2,1,1909,A,2.0,1.71,156200
+LST-00042,agent33@example-estates.com,2024-06-20,Docklands,flat,753,1,1,1920,C,1.0,0.94,73000
+LST-00043,agent16@example-estates.com,2023-06-04,Old Town,terraced,963,2,2,1913,D,,1.51,218400
+LST-00044,agent18@example-estates.com,2024-04-02,Old Town,flat,590,2,1,2013,C,,1.21,180200
+LST-00045,agent4@example-estates.com,2023-07-19,Old Town,semi-detached,1367,3,2,1896,C,3.0,1.17,326400
+LST-00046,agent40@example-estates.com,2024-01-04,Northgate,semi-detached,1646,4,2,1997,C,4.0,1.43,290500
+LST-00047,agent33@example-estates.com,2023-02-06,Eastfield,flat,509,2,2,1902,F,5.0,1.24,101700
+LST-00048,agent7@example-estates.com,2023-11-06,Parkview,semi-detached,1243,3,2,1901,A,1.0,2.19,310400
+LST-00049,agent20@example-estates.com,2024-09-24,Old Town,terraced,923,2,1,1941,C,4.0,1.43,155000
+LST-00050,agent8@example-estates.com,2023-05-19,Northgate,detached,1222,2,1,2014,B,,2.76,261100
+LST-00051,agent31@example-estates.com,2024-02-19,Eastfield,detached,1590,5,3,1915,D,5.0,3.43,330800
+LST-00052,agent28@example-estates.com,2023-07-29,Eastfield,detached,1976,5,2,1908,C,5.0,2.36,402400
+LST-00053,agent35@example-estates.com,2023-02-16,Parkview,flat,631,1,1,1982,E,5.0,1.94,129500
+LST-00054,agent8@example-estates.com,2023-04-23,Northgate,flat,547,1,1,2017,D,5.0,3.79,76800
+LST-00055,agent26@example-estates.com,2023-12-07,Old Town,terraced,886,3,1,1961,B,5.0,3.1,195800
+LST-00056,agent30@example-estates.com,2024-02-23,Old Town,flat,643,1,1,1994,C,2.0,0.6,154000
+LST-00057,agent4@example-estates.com,2024-04-12,Eastfield,flat,536,2,1,1955,D,5.0,2.02,113900
+LST-00058,agent26@example-estates.com,2023-10-23,Old Town,terraced,899,2,1,1895,D,,0.1,175400
+LST-00059,agent22@example-estates.com,2023-07-19,Parkview,flat,757,3,1,1996,E,1.0,1.97,160300
+LST-00060,agent8@example-estates.com,2023-05-12,Riverside,detached,1006,3,1,2010,B,4.0,1.26,429300
+LST-00061,agent13@example-estates.com,2023-11-22,Northgate,terraced,1296,3,2,1991,C,,3.28,206500
+LST-00062,agent20@example-estates.com,2024-03-08,Meadowbank,semi-detached,1046,3,2,1968,D,1.0,1.06,224700
+LST-00063,agent37@example-estates.com,2023-08-20,Docklands,terraced,1210,3,1,2019,C,,0.3,185200
+LST-00064,agent22@example-estates.com,2024-10-09,Northgate,terraced,1241,3,2,1963,F,3.0,4.16,180400
+LST-00065,agent40@example-estates.com,2024-03-17,Eastfield,flat,669,3,2,1960,E,1.0,0.31,109600
+LST-00066,agent3@example-estates.com,2023-05-10,Eastfield,detached,1469,4,2,2002,C,,3.37,420400
+LST-00067,agent8@example-estates.com,2023-05-08,Docklands,terraced,971,3,1,1895,A,1.0,1.59,126300
+LST-00068,agent25@example-estates.com,2024-07-22,Docklands,terraced,823,1,1,1902,E,3.0,2.67,98300
+LST-00069,agent9@example-estates.com,2024-09-02,Riverside,flat,617,1,1,1890,B,4.0,2.71,123000
+LST-00070,agent33@example-estates.com,2024-03-22,Meadowbank,terraced,996,2,2,1922,D,3.0,0.28,156700
+LST-00071,agent1@example-estates.com,2024-08-27,Old Town,flat,895,2,1,2010,E,,0.45,203000
+LST-00072,agent9@example-estates.com,2024-12-29,Industrial Park,detached,1729,4,3,1978,C,1.0,2.2,337400
+LST-00073,agent19@example-estates.com,2024-08-24,Docklands,semi-detached,1018,4,2,1935,C,5.0,2.72,159600
+LST-00074,agent14@example-estates.com,2024-01-31,Old Town,terraced,865,3,2,1964,E,3.0,1.44,186100
+LST-00075,agent35@example-estates.com,2024-02-26,Docklands,flat,621,1,1,1897,C,3.0,0.91,76400
+LST-00076,agent25@example-estates.com,2023-02-22,Northgate,terraced,888,2,1,1955,C,1.0,2.75,113400
+LST-00077,agent6@example-estates.com,2023-01-30,Eastfield,terraced,1067,3,2,1951,C,,1.25,153200
+LST-00078,agent24@example-estates.com,2023-10-19,Meadowbank,detached,1455,3,1,1990,C,3.0,1.8,311500
+LST-00079,agent29@example-estates.com,2023-03-25,Meadowbank,detached,1301,4,2,2003,C,2.0,2.26,328800
+LST-00080,agent35@example-estates.com,2023-09-17,Riverside,terraced,947,2,1,1946,E,2.0,2.29,211600
+LST-00081,agent7@example-estates.com,2024-03-16,Parkview,semi-detached,840,2,1,1930,A,3.0,2.83,182400
+LST-00082,agent23@example-estates.com,2024-01-22,Riverside,flat,675,1,1,2000,C,1.0,2.22,157700
+LST-00083,agent9@example-estates.com,2024-08-23,Eastfield,terraced,944,2,1,1981,D,2.0,1.71,155200
+LST-00084,agent35@example-estates.com,2023-03-27,Industrial Park,semi-detached,1132,2,1,1913,D,3.0,3.08,116600
+LST-00085,agent15@example-estates.com,2024-01-10,Northgate,terraced,1030,2,1,2015,C,4.0,1.16,149300
+LST-00086,agent13@example-estates.com,2024-05-20,Parkview,semi-detached,1676,4,2,1914,D,2.0,1.55,335700
+LST-00087,agent14@example-estates.com,2023-12-15,Northgate,flat,693,2,1,1934,D,1.0,0.47,97900
+LST-00088,agent27@example-estates.com,2023-02-10,Eastfield,semi-detached,1139,3,2,1904,C,3.0,1.85,214400
+LST-00089,agent1@example-estates.com,2023-01-20,Riverside,detached,1562,4,2,1997,D,3.0,0.26,558600
+LST-00090,agent33@example-estates.com,2023-07-24,Riverside,semi-detached,1289,3,2,1899,C,1.0,0.26,356500
+LST-00091,agent27@example-estates.com,2023-11-19,Docklands,semi-detached,1084,2,1,1976,F,5.0,3.14,149100
+LST-00092,agent29@example-estates.com,2024-03-14,Meadowbank,semi-detached,1336,3,1,2001,E,5.0,2.63,260900
+LST-00093,agent38@example-estates.com,2024-10-23,Riverside,flat,636,2,1,1976,B,5.0,0.1,185100
+LST-00094,agent18@example-estates.com,2023-05-16,Meadowbank,flat,518,2,1,2007,C,1.0,2.01,104200
+LST-00095,agent7@example-estates.com,2023-06-11,Meadowbank,flat,691,2,1,1930,D,5.0,4.46,121000
+LST-00096,agent23@example-estates.com,2024-10-02,Parkview,flat,386,1,1,1952,B,4.0,0.79,114100
+LST-00097,agent5@example-estates.com,2024-05-13,Meadowbank,flat,573,2,1,1955,E,3.0,0.58,102400
+LST-00098,agent38@example-estates.com,2023-07-18,Meadowbank,flat,478,1,1,1907,B,,1.37,84700
+LST-00099,agent5@example-estates.com,2023-12-02,Riverside,flat,613,1,1,1947,C,4.0,2.56,163900
+LST-00100,agent31@example-estates.com,2024-04-26,Docklands,semi-detached,1220,3,1,1900,A,1.0,1.24,146800
+LST-00101,agent25@example-estates.com,2023-09-10,Industrial Park,flat,803,2,1,1920,B,1.0,2.6,71900
+LST-00102,agent37@example-estates.com,2024-09-24,Industrial Park,flat,586,2,1,1914,C,3.0,2.53,57700
+LST-00103,agent14@example-estates.com,2024-01-24,Industrial Park,terraced,558,1,1,1903,D,4.0,1.37,61200
+LST-00104,agent15@example-estates.com,2023-09-08,Docklands,semi-detached,1176,3,2,1981,D,3.0,4.54,194100
+LST-00105,agent18@example-estates.com,2024-03-17,Meadowbank,terraced,957,2,1,1987,C,1.0,1.42,180500
+LST-00106,agent20@example-estates.com,2023-06-06,Parkview,flat,486,1,1,1984,C,1.0,3.76,92600
+LST-00107,agent23@example-estates.com,2024-07-14,Meadowbank,terraced,702,1,1,1916,D,4.0,2.16,98900
+LST-00108,agent10@example-estates.com,2024-02-13,Industrial Park,terraced,932,3,1,2017,E,1.0,3.82,105200
+LST-00109,agent1@example-estates.com,2024-04-08,Meadowbank,semi-detached,840,2,1,1916,E,2.0,1.17,169200
+LST-00110,agent27@example-estates.com,2023-05-18,Old Town,terraced,939,2,1,1934,D,1.0,3.08,151300
+LST-00111,agent2@example-estates.com,2023-01-28,Riverside,flat,782,1,1,1930,E,4.0,2.55,137000
+LST-00112,agent38@example-estates.com,2024-05-19,Riverside,terraced,641,2,1,1931,C,5.0,0.49,244100
+LST-00113,agent24@example-estates.com,2023-11-08,Eastfield,flat,628,2,1,1903,E,4.0,1.68,84100
+LST-00114,agent29@example-estates.com,2023-06-12,Parkview,terraced,837,1,1,1954,F,1.0,1.99,140700
+LST-00115,agent39@example-estates.com,2024-03-09,Northgate,detached,1258,3,1,1890,E,5.0,0.78,253900
+LST-00116,agent1@example-estates.com,2024-03-07,Parkview,terraced,1142,3,1,1967,D,,1.56,251800
+LST-00117,agent21@example-estates.com,2024-08-10,Parkview,terraced,956,2,1,1891,E,1.0,0.36,157100
+LST-00118,agent13@example-estates.com,2024-04-10,Riverside,flat,566,2,1,1959,B,2.0,1.22,138700
+LST-00119,agent23@example-estates.com,2023-11-29,Parkview,terraced,917,2,1,1994,D,,2.11,226300
+LST-00120,agent7@example-estates.com,2024-04-03,Meadowbank,semi-detached,1225,2,1,1975,A,,3.82,229700
+LST-00121,agent34@example-estates.com,2023-02-18,Docklands,terraced,1020,3,2,1893,D,2.0,2.68,163300
+LST-00122,agent20@example-estates.com,2023-09-11,Parkview,flat,733,1,1,1968,A,2.0,1.2,159700
+LST-00123,agent22@example-estates.com,2023-11-05,Meadowbank,terraced,1220,3,2,1940,D,4.0,0.89,227400
+LST-00124,agent28@example-estates.com,2024-05-12,Docklands,detached,1444,4,2,1984,C,4.0,3.44,305000
+LST-00125,agent16@example-estates.com,2023-03-18,Industrial Park,terraced,1247,3,1,1935,B,1.0,1.83,145500
+LST-00126,agent1@example-estates.com,2023-05-25,Northgate,terraced,994,3,1,1919,B,5.0,1.06,148800
+LST-00127,agent17@example-estates.com,2023-08-14,Eastfield,detached,1324,3,2,1912,F,4.0,3.78,253000
+LST-00128,agent1@example-estates.com,2023-01-21,Meadowbank,flat,523,2,1,1913,E,3.0,0.65,107900
+LST-00129,agent31@example-estates.com,2023-03-04,Northgate,semi-detached,1024,3,1,1992,D,4.0,1.42,131000
+LST-00130,agent36@example-estates.com,2023-01-08,Old Town,detached,1472,3,2,2007,C,2.0,0.55,475900
+LST-00131,agent27@example-estates.com,2024-09-23,Eastfield,terraced,704,2,1,2015,C,1.0,0.99,135500
+LST-00132,agent28@example-estates.com,2023-07-13,Northgate,semi-detached,982,2,1,1932,A,1.0,3.52,156200
+LST-00133,agent5@example-estates.com,2024-12-08,Eastfield,flat,789,2,1,1892,F,5.0,0.66,124200
+LST-00134,agent38@example-estates.com,2024-07-22,Old Town,detached,1698,4,2,1929,B,1.0,1.01,485700
+LST-00135,agent31@example-estates.com,2024-09-10,Meadowbank,terraced,715,2,1,1937,C,1.0,1.63,134600
+LST-00136,agent4@example-estates.com,2023-11-20,Old Town,flat,547,1,1,1983,B,4.0,1.58,147300
+LST-00137,agent35@example-estates.com,2024-08-05,Old Town,flat,689,2,1,1950,D,1.0,0.6,144200
+LST-00138,agent29@example-estates.com,2023-12-01,Meadowbank,detached,1559,3,1,1980,B,5.0,2.06,419400
+LST-00139,agent12@example-estates.com,2023-09-05,Docklands,terraced,828,2,2,1908,D,1.0,3.57,93400
+LST-00140,agent29@example-estates.com,2023-06-19,Parkview,detached,1674,4,2,1994,C,4.0,4.45,430400
+LST-00141,agent39@example-estates.com,2024-01-14,Parkview,semi-detached,927,2,1,1904,A,2.0,0.77,219200
+LST-00142,agent39@example-estates.com,2023-09-06,Industrial Park,semi-detached,1330,3,2,1948,E,5.0,1.4,158600
+LST-00143,agent15@example-estates.com,2024-03-11,Eastfield,semi-detached,1379,2,1,2016,B,2.0,1.46,252700
+LST-00144,agent34@example-estates.com,2023-01-07,Meadowbank,semi-detached,1276,3,2,1930,D,1.0,1.98,268500
+LST-00145,agent12@example-estates.com,2023-03-03,Meadowbank,semi-detached,1247,3,1,1921,E,3.0,0.77,227400
+LST-00146,agent10@example-estates.com,2024-10-31,Riverside,detached,1491,4,2,1964,B,1.0,0.81,605200
+LST-00147,agent38@example-estates.com,2024-06-23,Riverside,flat,691,1,1,1959,C,5.0,2.53,149600
+LST-00148,agent30@example-estates.com,2023-06-21,Meadowbank,flat,692,1,1,1935,C,3.0,2.52,97700
+LST-00149,agent37@example-estates.com,2023-10-24,Meadowbank,semi-detached,1087,2,1,2020,F,1.0,3.05,156900
+LST-00150,agent20@example-estates.com,2023-05-01,Eastfield,flat,369,1,1,1920,F,3.0,2.58,52700
+LST-00151,agent28@example-estates.com,2023-10-12,Northgate,flat,519,1,1,1997,E,4.0,2.21,84400
+LST-00152,agent13@example-estates.com,2023-02-03,Northgate,terraced,962,2,1,1984,D,5.0,1.08,120000
+LST-00153,agent39@example-estates.com,2024-01-21,Old Town,semi-detached,1037,2,1,1953,C,3.0,0.85,334000
+LST-00154,agent33@example-estates.com,2023-12-19,Parkview,flat,1012,2,1,1980,D,5.0,0.32,195100
+LST-00155,agent4@example-estates.com,2023-02-12,Riverside,detached,1782,4,2,1947,A,1.0,3.25,486100
+LST-00156,agent8@example-estates.com,2024-01-06,Meadowbank,flat,660,1,1,1915,C,,0.31,95500
+LST-00157,agent16@example-estates.com,2024-06-28,Northgate,flat,870,1,1,1924,D,3.0,0.33,98600
+LST-00158,agent13@example-estates.com,2024-10-09,Industrial Park,flat,692,2,1,1993,A,5.0,2.55,79100
+LST-00159,agent31@example-estates.com,2023-11-10,Docklands,flat,575,1,1,1909,D,,2.23,61100
+LST-00160,agent31@example-estates.com,2023-01-14,Industrial Park,flat,638,2,1,1911,A,4.0,0.54,70600
+LST-00161,agent22@example-estates.com,2024-08-23,Parkview,terraced,668,1,1,1946,F,3.0,2.64,132900
+LST-00162,agent8@example-estates.com,2024-03-10,Old Town,terraced,969,2,1,1906,E,4.0,0.97,187200
+LST-00163,agent32@example-estates.com,2023-12-06,Old Town,flat,771,3,2,1988,B,3.0,2.25,186300
+LST-00164,agent18@example-estates.com,2024-11-01,Eastfield,flat,683,2,1,2012,F,3.0,0.26,127000
+LST-00165,agent10@example-estates.com,2023-06-15,Eastfield,flat,658,1,1,1909,D,5.0,1.97,102000
+LST-00166,agent19@example-estates.com,2024-05-13,Northgate,detached,1674,3,2,1898,E,1.0,1.82,323700
+LST-00167,agent18@example-estates.com,2024-10-12,Northgate,semi-detached,1738,4,2,1897,D,5.0,1.29,226100
+LST-00168,agent9@example-estates.com,2023-09-25,Northgate,semi-detached,1676,4,2,1935,A,3.0,1.31,252300
+LST-00169,agent1@example-estates.com,2023-03-03,Northgate,detached,1768,4,2,1977,C,4.0,1.06,332300
+LST-00170,agent33@example-estates.com,2023-02-27,Industrial Park,flat,706,2,1,1972,D,2.0,7.47,50100
+LST-00171,agent3@example-estates.com,2023-11-23,Northgate,detached,1862,4,2,2002,E,3.0,1.34,350100
+LST-00172,agent10@example-estates.com,2023-12-13,Northgate,flat,747,1,1,1989,B,3.0,1.12,137200
+LST-00173,agent10@example-estates.com,2023-05-05,Parkview,terraced,810,2,2,1913,B,1.0,2.74,134200
+LST-00174,agent12@example-estates.com,2023-05-31,Eastfield,terraced,725,2,1,2006,A,4.0,2.05,155500
+LST-00175,agent27@example-estates.com,2024-11-30,Industrial Park,detached,1935,5,2,1893,C,2.0,2.87,236500
+LST-00176,agent13@example-estates.com,2023-10-15,Industrial Park,flat,587,2,1,1908,F,1.0,0.1,58500
+LST-00177,agent4@example-estates.com,2024-03-02,Parkview,terraced,1033,2,2,1968,D,,2.96,193900
+LST-00178,agent7@example-estates.com,2024-07-24,Parkview,semi-detached,1187,2,1,1956,F,2.0,1.58,245800
+LST-00179,agent16@example-estates.com,2023-06-16,Northgate,flat,657,1,1,1921,E,,0.86,84900
+LST-00180,agent9@example-estates.com,2024-07-29,Docklands,detached,2165,5,3,1966,B,1.0,4.46,299100
+LST-00181,agent5@example-estates.com,2024-06-06,Northgate,flat,648,2,1,1918,B,1.0,2.36,71300
+LST-00182,agent1@example-estates.com,2024-11-26,Old Town,detached,1677,4,2,1986,E,1.0,4.85,433400
+LST-00183,agent35@example-estates.com,2023-05-16,Northgate,flat,691,2,2,1908,D,,0.46,112700
+LST-00184,agent38@example-estates.com,2023-03-31,Northgate,semi-detached,1141,2,1,1997,D,2.0,0.14,183600
+LST-00185,agent2@example-estates.com,2024-11-17,Eastfield,detached,1940,4,3,1935,D,1.0,0.64,373900
+LST-00186,agent33@example-estates.com,2023-09-03,Eastfield,semi-detached,1301,3,1,1929,E,4.0,1.76,251400
+LST-00187,agent40@example-estates.com,2024-04-02,Northgate,semi-detached,1468,3,1,2010,D,2.0,0.24,252200
+LST-00188,agent18@example-estates.com,2023-12-27,Parkview,flat,579,1,1,1950,C,,0.72,120500
+LST-00189,agent23@example-estates.com,2023-02-05,Industrial Park,detached,1580,4,2,1910,D,1.0,1.46,232700
+LST-00190,agent11@example-estates.com,2023-07-12,Northgate,flat,696,2,1,1912,B,3.0,1.92,102800
+LST-00191,agent39@example-estates.com,2024-08-07,Eastfield,detached,1336,3,1,2000,C,3.0,1.02,290900
+LST-00192,agent13@example-estates.com,2024-09-27,Eastfield,semi-detached,1113,3,2,1954,D,4.0,0.99,207900
+LST-00193,agent25@example-estates.com,2024-10-29,Old Town,detached,1441,2,1,2017,C,3.0,1.25,462800
+LST-00194,agent29@example-estates.com,2023-03-13,Riverside,semi-detached,884,3,2,1937,B,5.0,3.66,271000
+LST-00195,agent21@example-estates.com,2023-05-28,Northgate,flat,664,2,1,1897,B,4.0,0.52,92100
+LST-00196,agent1@example-estates.com,2023-10-08,Parkview,terraced,965,2,2,1969,C,2.0,0.68,209200
+LST-00197,agent4@example-estates.com,2023-10-08,Riverside,semi-detached,869,2,1,1931,C,3.0,0.82,307100
+LST-00198,agent2@example-estates.com,2024-05-23,Industrial Park,semi-detached,1173,2,1,2018,E,5.0,3.29,163100
+LST-00199,agent39@example-estates.com,2024-05-02,Old Town,detached,1565,4,2,1920,D,4.0,0.49,516800
+LST-00200,agent40@example-estates.com,2023-01-13,Old Town,terraced,1146,3,1,2006,F,,3.56,192300
+LST-00201,agent24@example-estates.com,2024-03-24,Eastfield,semi-detached,1160,2,1,1903,F,4.0,3.46,155600
+LST-00202,agent18@example-estates.com,2024-11-25,Old Town,detached,1409,3,2,1908,C,5.0,2.48,407000
+LST-00203,agent15@example-estates.com,2024-06-20,Parkview,semi-detached,1295,3,1,1984,D,3.0,0.97,304100
+LST-00204,agent30@example-estates.com,2024-10-11,Riverside,terraced,1126,2,1,1985,D,,0.24,264800
+LST-00205,agent24@example-estates.com,2024-03-24,Meadowbank,flat,637,1,1,1900,F,2.0,0.35,96900
+LST-00206,agent10@example-estates.com,2024-02-24,Meadowbank,flat,732,1,1,1976,D,2.0,1.69,127100
+LST-00207,agent16@example-estates.com,2023-02-27,Parkview,detached,1712,4,1,2007,C,,3.25,411500
+LST-00208,agent27@example-estates.com,2023-08-17,Northgate,terraced,1185,3,2,1933,D,4.0,1.32,173800
+LST-00209,agent30@example-estates.com,2023-10-05,Parkview,flat,787,2,1,1967,E,2.0,3.13,125000
+LST-00210,agent25@example-estates.com,2024-01-05,Docklands,semi-detached,1309,3,2,1968,C,2.0,1.44,208700
+LST-00211,agent19@example-estates.com,2023-07-01,Meadowbank,semi-detached,1297,3,2,1926,C,2.0,2.71,238400
+LST-00212,agent23@example-estates.com,2023-12-08,Eastfield,semi-detached,1154,3,2,1990,F,,2.04,170000
+LST-00213,agent8@example-estates.com,2024-10-15,Riverside,detached,2177,5,2,1933,F,4.0,1.44,641900
+LST-00214,agent38@example-estates.com,2024-12-13,Eastfield,detached,1542,5,3,1980,B,3.0,0.6,324200
+LST-00215,agent29@example-estates.com,2023-07-10,Riverside,flat,633,1,2,1950,E,2.0,0.7,153400
+LST-00216,agent32@example-estates.com,2023-06-20,Riverside,flat,625,2,2,1989,C,3.0,1.85,184100
+LST-00217,agent32@example-estates.com,2023-06-13,Eastfield,semi-detached,952,3,1,1914,E,5.0,0.66,201600
+LST-00218,agent19@example-estates.com,2023-11-04,Meadowbank,semi-detached,1456,4,2,1961,B,1.0,0.43,330800
+LST-00219,agent26@example-estates.com,2023-03-23,Eastfield,flat,779,2,1,1986,D,1.0,0.25,118700
+LST-00220,agent10@example-estates.com,2023-12-06,Docklands,terraced,709,1,1,1980,F,3.0,4.68,73300
+LST-00221,agent35@example-estates.com,2023-08-20,Meadowbank,detached,1751,4,2,2005,A,1.0,1.6,372500
+LST-00222,agent27@example-estates.com,2024-05-29,Old Town,flat,697,2,1,1895,A,,1.28,158800
+LST-00223,agent23@example-estates.com,2023-01-18,Parkview,flat,488,2,1,1998,D,,2.43,107600
+LST-00224,agent31@example-estates.com,2023-03-03,Docklands,detached,1834,4,2,1907,A,4.0,2.17,360900
+LST-00225,agent22@example-estates.com,2023-03-29,Old Town,semi-detached,1492,3,1,1913,A,2.0,1.22,366200
+LST-00226,agent32@example-estates.com,2024-04-21,Northgate,terraced,975,3,2,1890,D,4.0,0.85,139200
+LST-00227,agent18@example-estates.com,2024-08-03,Meadowbank,flat,484,1,1,1947,E,4.0,4.07,67800
+LST-00228,agent18@example-estates.com,2024-01-31,Northgate,semi-detached,1184,3,2,1976,D,1.0,1.52,240300
+LST-00229,agent2@example-estates.com,2023-01-14,Industrial Park,terraced,751,2,1,2006,C,2.0,1.26,89200
+LST-00230,agent33@example-estates.com,2024-06-04,Old Town,semi-detached,1383,3,1,1918,C,5.0,2.78,331700
+LST-00231,agent11@example-estates.com,2024-02-16,Riverside,semi-detached,1372,3,2,1903,D,1.0,0.94,311800
+LST-00232,agent25@example-estates.com,2024-01-02,Docklands,flat,628,1,1,1891,B,1.0,1.77,61400
+LST-00233,agent17@example-estates.com,2024-11-08,Industrial Park,flat,807,2,1,1975,D,5.0,7.81,66200
+LST-00234,agent16@example-estates.com,2023-01-02,Meadowbank,terraced,693,2,1,1951,F,5.0,0.94,124100
+LST-00235,agent14@example-estates.com,2023-02-08,Northgate,flat,708,1,1,1956,A,4.0,0.87,130100
+LST-00236,agent13@example-estates.com,2023-07-22,Northgate,terraced,1197,3,1,1942,E,,0.83,165900
+LST-00237,agent29@example-estates.com,2023-06-29,Northgate,semi-detached,1335,3,1,1921,D,3.0,1.75,210800
+LST-00238,agent31@example-estates.com,2024-10-31,Riverside,detached,1418,3,2,2012,D,2.0,1.12,415700
+LST-00239,agent9@example-estates.com,2023-03-28,Parkview,detached,2122,5,2,1974,E,4.0,3.75,439300
+LST-00240,agent8@example-estates.com,2024-04-05,Riverside,terraced,1042,2,1,1980,D,2.0,1.71,290400
+LST-00241,agent25@example-estates.com,2024-10-19,Industrial Park,semi-detached,1246,3,1,1993,D,5.0,3.52,148100
+LST-00242,agent32@example-estates.com,2023-03-15,Eastfield,flat,769,2,1,1931,E,4.0,2.33,106100
+LST-00243,agent36@example-estates.com,2024-02-29,Old Town,flat,474,2,1,1911,D,4.0,1.54,117300
+LST-00244,agent4@example-estates.com,2023-06-30,Meadowbank,semi-detached,745,1,1,1938,D,5.0,4.29,127900
+LST-00245,agent14@example-estates.com,2023-09-25,Eastfield,semi-detached,944,2,1,1956,D,1.0,1.66,154100
+LST-00246,agent14@example-estates.com,2023-05-11,Parkview,terraced,890,2,1,1993,D,,2.09,200200
+LST-00247,agent35@example-estates.com,2024-01-12,Old Town,detached,1511,4,2,1989,D,3.0,0.8,463700
+LST-00248,agent24@example-estates.com,2023-05-31,Northgate,flat,645,2,1,1940,C,1.0,0.36,109900
+LST-00249,agent19@example-estates.com,2024-01-31,Parkview,semi-detached,1325,3,2,1993,E,1.0,4.24,226100
+LST-00250,agent10@example-estates.com,2024-07-31,Parkview,terraced,1108,3,1,1963,D,2.0,0.39,217600
+LST-00251,agent39@example-estates.com,2023-05-27,Old Town,flat,593,1,1,2017,A,4.0,4.01,110300
+LST-00252,agent40@example-estates.com,2024-12-11,Riverside,terraced,874,1,1,1925,D,5.0,2.13,219100
+LST-00253,agent27@example-estates.com,2023-08-17,Meadowbank,flat,615,1,1,2022,D,,0.67,126100
+LST-00254,agent28@example-estates.com,2024-01-20,Riverside,detached,1565,4,2,1918,A,3.0,4.14,592200
+LST-00255,agent20@example-estates.com,2023-03-05,Meadowbank,detached,1543,4,2,1917,C,2.0,1.3,332900
+LST-00256,agent37@example-estates.com,2024-10-03,Old Town,terraced,1073,3,1,2015,B,4.0,3.35,252300
+LST-00257,agent40@example-estates.com,2023-03-24,Industrial Park,terraced,1158,3,2,1991,C,5.0,3.58,188400
+LST-00258,agent15@example-estates.com,2023-04-01,Eastfield,flat,624,2,1,1925,B,,1.39,111000
+LST-00259,agent9@example-estates.com,2024-12-01,Parkview,flat,558,2,1,1939,D,1.0,0.3,102900
+LST-00260,agent8@example-estates.com,2024-10-04,Northgate,semi-detached,922,2,1,2008,C,3.0,1.2,171800
+LST-00261,agent5@example-estates.com,2023-12-29,Northgate,terraced,1112,3,2,1952,F,1.0,0.52,183500
+LST-00262,agent33@example-estates.com,2023-10-30,Northgate,semi-detached,867,2,1,1891,D,5.0,1.49,140400
+LST-00263,agent37@example-estates.com,2024-11-23,Northgate,flat,727,1,1,1918,E,4.0,6.95,48300
+LST-00264,agent2@example-estates.com,2024-03-06,Meadowbank,terraced,1200,3,1,1981,A,3.0,2.13,191200
+LST-00265,agent40@example-estates.com,2023-12-14,Meadowbank,detached,2315,6,2,2014,E,3.0,1.75,578700
+LST-00266,agent7@example-estates.com,2023-06-12,Northgate,terraced,963,2,1,1962,A,2.0,1.85,158700
+LST-00267,agent12@example-estates.com,2024-12-21,Docklands,terraced,964,3,1,1979,D,4.0,1.63,117400
+LST-00268,agent25@example-estates.com,2023-06-03,Meadowbank,terraced,953,2,1,1976,D,4.0,0.4,180600
+LST-00269,agent25@example-estates.com,2023-03-22,Old Town,terraced,936,2,2,2004,A,4.0,6.03,212300
+LST-00270,agent35@example-estates.com,2024-11-17,Northgate,flat,506,2,1,2002,A,1.0,0.23,86100
+LST-00271,agent34@example-estates.com,2023-03-26,Riverside,flat,711,1,1,1927,B,5.0,2.48,185000
+LST-00272,agent4@example-estates.com,2023-11-01,Riverside,detached,2226,4,2,1934,C,3.0,0.93,670500
+LST-00273,agent21@example-estates.com,2023-05-29,Riverside,flat,677,2,1,1958,C,3.0,1.02,175100
+LST-00274,agent39@example-estates.com,2023-07-21,Parkview,flat,699,2,2,1920,F,3.0,1.69,144700
+LST-00275,agent21@example-estates.com,2024-07-02,Industrial Park,flat,755,2,1,1940,F,2.0,0.68,75200
+LST-00276,agent24@example-estates.com,2023-09-29,Eastfield,terraced,992,3,1,2009,C,5.0,4.8,161200
+LST-00277,agent12@example-estates.com,2023-10-20,Meadowbank,terraced,616,2,2,2019,C,5.0,2.01,168800
+LST-00278,agent33@example-estates.com,2024-05-21,Northgate,semi-detached,1069,4,2,1964,C,3.0,4.42,197200
+LST-00279,agent16@example-estates.com,2023-05-31,Northgate,terraced,934,3,2,1910,E,1.0,0.44,154200
+LST-00280,agent38@example-estates.com,2023-08-29,Meadowbank,flat,600,1,1,1965,C,4.0,3.59,107300
+LST-00281,agent36@example-estates.com,2023-06-27,Old Town,detached,1529,4,2,1918,B,3.0,1.15,584800
+LST-00282,agent5@example-estates.com,2024-07-20,Old Town,detached,1726,4,2,1947,D,4.0,2.04,424500
+LST-00283,agent25@example-estates.com,2023-04-07,Meadowbank,terraced,846,2,1,1999,C,2.0,1.11,182100
+LST-00284,agent30@example-estates.com,2024-02-28,Old Town,flat,655,2,1,1987,D,5.0,3.15,149500
+LST-00285,agent21@example-estates.com,2023-01-20,Parkview,semi-detached,1287,3,1,1915,F,4.0,0.99,251000
+LST-00286,agent28@example-estates.com,2023-09-07,Eastfield,terraced,974,3,2,1992,E,3.0,2.15,192200
+LST-00287,agent40@example-estates.com,2023-10-08,Old Town,terraced,1238,3,1,1996,D,4.0,1.62,268400
+LST-00288,agent16@example-estates.com,2024-03-17,Eastfield,flat,711,2,2,1948,B,5.0,1.25,129800
+LST-00289,agent2@example-estates.com,2023-03-17,Meadowbank,terraced,820,2,2,1975,B,3.0,2.55,165900
+LST-00290,agent34@example-estates.com,2024-08-22,Northgate,semi-detached,1063,3,2,2017,D,2.0,0.62,200100
+LST-00291,agent25@example-estates.com,2023-04-15,Industrial Park,flat,501,1,1,1911,A,2.0,2.7,48100
+LST-00292,agent24@example-estates.com,2024-04-12,Industrial Park,detached,880,2,1,1941,F,2.0,0.61,141400
+LST-00293,agent23@example-estates.com,2023-11-19,Northgate,semi-detached,1264,2,1,1982,D,3.0,2.15,244400
+LST-00294,agent23@example-estates.com,2023-11-08,Industrial Park,semi-detached,1053,2,1,1972,C,2.0,1.25,138600
+LST-00295,agent12@example-estates.com,2023-12-23,Old Town,detached,2199,5,3,1984,C,4.0,0.5,642700
+LST-00296,agent30@example-estates.com,2024-09-26,Old Town,flat,518,1,1,1896,D,,0.69,123400
+LST-00297,agent35@example-estates.com,2024-06-11,Meadowbank,semi-detached,1200,4,2,2003,D,2.0,1.56,271100
+LST-00298,agent14@example-estates.com,2023-11-21,Parkview,terraced,896,2,1,1940,C,1.0,0.66,193700
+LST-00299,agent4@example-estates.com,2023-05-28,Eastfield,terraced,837,1,1,1910,F,4.0,2.09,109300
+LST-00300,agent32@example-estates.com,2023-06-20,Meadowbank,terraced,1046,2,1,1979,E,4.0,0.12,227800
+LST-00301,agent33@example-estates.com,2024-06-09,Industrial Park,flat,750,2,1,1922,B,2.0,1.24,67500
+LST-00302,agent30@example-estates.com,2023-10-30,Eastfield,flat,586,2,1,1919,C,3.0,2.92,89700
+LST-00303,agent9@example-estates.com,2024-12-09,Old Town,flat,583,1,1,2019,B,3.0,1.19,149600
+LST-00304,agent20@example-estates.com,2023-09-18,Parkview,semi-detached,1190,3,1,2006,B,1.0,4.58,232400
+LST-00305,agent15@example-estates.com,2023-10-13,Meadowbank,semi-detached,1311,3,2,1944,A,5.0,1.35,302200
+LST-00306,agent36@example-estates.com,2024-11-16,Docklands,flat,641,2,1,1972,D,1.0,2.12,91100
+LST-00307,agent10@example-estates.com,2023-05-28,Parkview,semi-detached,1164,4,2,2004,D,3.0,1.59,324700
+LST-00308,agent2@example-estates.com,2023-04-08,Old Town,detached,1188,4,3,1939,D,2.0,1.63,386300
+LST-00309,agent10@example-estates.com,2024-08-19,Riverside,terraced,987,2,1,1901,D,2.0,4.09,204400
+LST-00310,agent10@example-estates.com,2024-05-01,Riverside,terraced,790,2,2,2001,E,2.0,1.88,262300
+LST-00311,agent1@example-estates.com,2023-12-05,Northgate,flat,567,2,1,1898,A,2.0,2.49,75200
+LST-00312,agent11@example-estates.com,2023-12-01,Industrial Park,terraced,1148,2,1,1943,D,4.0,0.7,116600
+LST-00313,agent27@example-estates.com,2023-06-13,Northgate,terraced,943,2,1,1960,C,4.0,1.17,185700
+LST-00314,agent15@example-estates.com,2024-03-21,Parkview,semi-detached,834,2,1,1932,D,2.0,1.65,208200
+LST-00315,agent23@example-estates.com,2024-04-18,Riverside,detached,1636,3,2,2020,C,4.0,6.32,460600
+LST-00316,agent21@example-estates.com,2023-09-24,Riverside,semi-detached,945,3,2,1930,D,5.0,2.03,272800
+LST-00317,agent10@example-estates.com,2024-03-07,Northgate,detached,1644,4,2,1894,B,2.0,4.79,288200
+LST-00318,agent27@example-estates.com,2024-04-20,Meadowbank,flat,748,1,1,1950,B,5.0,1.01,122200
+LST-00319,agent11@example-estates.com,2024-12-30,Eastfield,semi-detached,989,3,2,1907,A,1.0,0.94,200900
+LST-00320,agent11@example-estates.com,2024-11-24,Industrial Park,semi-detached,965,2,1,2004,B,1.0,3.45,136300
+LST-00321,agent19@example-estates.com,2023-02-04,Meadowbank,semi-detached,1263,3,1,1979,C,1.0,0.59,247900
+LST-00322,agent11@example-estates.com,2023-10-09,Meadowbank,flat,525,2,1,1995,D,4.0,2.76,88700
+LST-00323,agent17@example-estates.com,2024-08-04,Eastfield,terraced,764,1,1,2023,E,2.0,3.57,137500
+LST-00324,agent32@example-estates.com,2024-11-18,Parkview,flat,755,1,1,1902,C,5.0,2.19,120100
+LST-00325,agent4@example-estates.com,2023-04-12,Parkview,semi-detached,1256,3,1,1948,B,1.0,2.32,269900
+LST-00326,agent29@example-estates.com,2023-02-21,Northgate,semi-detached,1164,4,2,1939,E,,0.18,210800
+LST-00327,agent28@example-estates.com,2024-12-29,Riverside,flat,520,1,1,1921,E,,0.91,119500
+LST-00328,agent4@example-estates.com,2023-07-14,Meadowbank,flat,627,2,2,2003,E,5.0,3.37,140800
+LST-00329,agent2@example-estates.com,2023-06-24,Meadowbank,semi-detached,1192,3,2,1997,B,,1.05,284900
+LST-00330,agent25@example-estates.com,2023-05-15,Northgate,terraced,1202,2,1,1902,B,1.0,1.43,141000
+LST-00331,agent33@example-estates.com,2024-08-30,Meadowbank,detached,1544,3,2,1981,E,1.0,0.49,309100
+LST-00332,agent5@example-estates.com,2024-10-27,Meadowbank,flat,476,2,1,2007,D,3.0,0.22,134200
+LST-00333,agent22@example-estates.com,2024-09-27,Parkview,flat,669,1,1,1975,F,1.0,3.13,110700
+LST-00334,agent1@example-estates.com,2024-07-27,Riverside,semi-detached,1172,3,2,2017,C,5.0,0.39,360200
+LST-00335,agent40@example-estates.com,2023-03-09,Meadowbank,detached,1968,5,3,1990,C,,2.91,531000
+LST-00336,agent6@example-estates.com,2024-07-14,Parkview,flat,731,2,1,1931,C,3.0,0.48,165200
+LST-00337,agent33@example-estates.com,2023-04-27,Riverside,flat,569,2,1,1982,E,2.0,4.73,119900
+LST-00338,agent26@example-estates.com,2024-01-14,Eastfield,terraced,1071,3,3,1986,F,4.0,3.15,182700
+LST-00339,agent13@example-estates.com,2023-12-07,Eastfield,semi-detached,1294,4,2,1930,A,,0.39,246100
+LST-00340,agent23@example-estates.com,2023-02-06,Riverside,flat,663,2,1,1948,C,2.0,0.25,166400
+LST-00341,agent40@example-estates.com,2023-06-03,Eastfield,flat,373,1,1,1979,C,2.0,0.6,71100
+LST-00342,agent2@example-estates.com,2024-05-22,Parkview,terraced,727,2,1,1955,C,4.0,0.7,188600
+LST-00343,agent7@example-estates.com,2024-11-06,Industrial Park,terraced,714,2,1,1944,D,5.0,2.1,87200
+LST-00344,agent24@example-estates.com,2024-07-07,Old Town,terraced,1197,2,1,1948,C,2.0,3.43,219300
+LST-00345,agent28@example-estates.com,2023-11-29,Docklands,detached,1247,2,1,1966,D,4.0,3.19,239500
+LST-00346,agent8@example-estates.com,2023-06-19,Eastfield,terraced,952,2,1,1963,A,1.0,3.54,136500
+LST-00347,agent40@example-estates.com,2024-07-02,Old Town,flat,609,1,1,1971,C,,1.96,115700
+LST-00348,agent39@example-estates.com,2024-04-10,Old Town,terraced,901,2,1,1954,E,5.0,0.5,182700
+LST-00349,agent9@example-estates.com,2024-01-13,Meadowbank,flat,583,1,1,1956,C,4.0,0.7,104500
+LST-00350,agent3@example-estates.com,2023-07-09,Northgate,detached,1863,4,2,1945,D,1.0,1.53,401000
+LST-00351,agent6@example-estates.com,2023-02-23,Parkview,detached,1942,5,2,1924,D,1.0,1.14,425900
+LST-00352,agent4@example-estates.com,2024-04-09,Docklands,semi-detached,1077,3,2,1919,F,2.0,1.44,149100
+LST-00353,agent29@example-estates.com,2024-11-28,Old Town,terraced,1022,2,1,2018,D,2.0,4.8,215700
+LST-00354,agent3@example-estates.com,2024-05-08,Meadowbank,terraced,891,2,1,1922,C,5.0,0.96,174500
+LST-00355,agent40@example-estates.com,2024-06-24,Riverside,semi-detached,1315,3,2,1979,D,4.0,0.75,393300
+LST-00356,agent37@example-estates.com,2024-01-26,Meadowbank,flat,646,1,1,1892,B,4.0,4.39,88100
+LST-00357,agent31@example-estates.com,2023-05-30,Industrial Park,terraced,620,1,1,1973,C,4.0,2.89,87100
+LST-00358,agent8@example-estates.com,2024-02-14,Eastfield,terraced,1406,3,2,1935,D,,0.93,211400
+LST-00359,agent30@example-estates.com,2024-06-01,Riverside,detached,1915,4,2,1974,D,3.0,3.66,606100
+LST-00360,agent24@example-estates.com,2024-05-26,Old Town,detached,1184,4,2,2012,F,4.0,0.75,421200
+LST-00361,agent4@example-estates.com,2024-03-06,Northgate,semi-detached,1197,3,2,1949,D,,0.41,245500
+LST-00362,agent16@example-estates.com,2024-08-25,Old Town,flat,632,2,1,1955,B,2.0,2.17,118700
+LST-00363,agent1@example-estates.com,2024-09-03,Old Town,detached,1265,3,2,2006,C,1.0,0.84,338400
+LST-00364,agent22@example-estates.com,2024-05-10,Northgate,flat,602,2,2,1922,E,4.0,1.36,77900
+LST-00365,agent36@example-estates.com,2024-09-02,Meadowbank,flat,633,1,1,1979,E,3.0,1.49,111900
+LST-00366,agent29@example-estates.com,2024-06-08,Industrial Park,terraced,898,2,1,1913,D,,2.2,81300
+LST-00367,agent17@example-estates.com,2024-11-19,Northgate,semi-detached,1020,3,1,1952,F,5.0,1.05,185700
+LST-00368,agent28@example-estates.com,2023-08-24,Docklands,detached,1965,4,2,1967,E,4.0,4.5,280500
+LST-00369,agent8@example-estates.com,2023-05-29,Riverside,semi-detached,965,2,1,2023,D,2.0,3.7,286300
+LST-00370,agent32@example-estates.com,2023-07-01,Northgate,flat,600,1,1,2020,E,,0.49,88300
+LST-00371,agent14@example-estates.com,2024-08-03,Meadowbank,flat,472,1,1,1949,D,1.0,6.61,49200
+LST-00372,agent22@example-estates.com,2023-01-23,Northgate,terraced,711,2,2,1944,C,3.0,3.96,117800
+LST-00373,agent3@example-estates.com,2024-05-05,Docklands,detached,1963,5,2,1923,B,4.0,6.17,372300
+LST-00374,agent3@example-estates.com,2023-08-18,Meadowbank,semi-detached,1394,3,1,1988,B,,1.28,302000
+LST-00375,agent11@example-estates.com,2024-04-23,Parkview,detached,1774,3,2,1900,B,1.0,0.65,338600
+LST-00376,agent24@example-estates.com,2024-08-27,Docklands,flat,629,1,1,1937,D,4.0,0.42,81200
+LST-00377,agent6@example-estates.com,2023-04-17,Docklands,terraced,1133,3,2,1987,D,2.0,1.02,192800
+LST-00378,agent27@example-estates.com,2023-05-01,Industrial Park,semi-detached,931,2,1,1977,D,1.0,1.25,125000
+LST-00379,agent30@example-estates.com,2023-02-02,Old Town,detached,1718,4,2,1973,E,4.0,0.2,579100
+LST-00380,agent12@example-estates.com,2023-05-28,Northgate,detached,1721,5,3,2005,E,1.0,0.66,356800
+LST-00381,agent33@example-estates.com,2023-10-22,Docklands,detached,2091,5,3,2006,C,2.0,0.98,303000
+LST-00382,agent28@example-estates.com,2024-01-08,Riverside,terraced,744,1,1,1974,A,1.0,0.73,188700
+LST-00383,agent2@example-estates.com,2024-02-07,Docklands,terraced,1043,2,1,1946,C,,1.94,157700
+LST-00384,agent40@example-estates.com,2023-12-23,Meadowbank,terraced,940,1,1,1950,D,5.0,1.99,143000
+LST-00385,agent24@example-estates.com,2023-05-18,Old Town,flat,536,1,1,1919,C,4.0,1.02,133400
+LST-00386,agent19@example-estates.com,2023-05-09,Eastfield,terraced,941,3,1,1917,B,5.0,1.46,143600
+LST-00387,agent11@example-estates.com,2024-06-13,Northgate,semi-detached,885,3,1,1901,C,4.0,1.32,160300
+LST-00388,agent15@example-estates.com,2024-06-12,Meadowbank,detached,2185,5,3,1911,C,5.0,5.56,588000
+LST-00389,agent4@example-estates.com,2024-09-09,Old Town,semi-detached,847,2,1,1925,B,4.0,1.61,235100
+LST-00390,agent33@example-estates.com,2023-07-26,Riverside,flat,679,1,1,2023,C,1.0,2.27,167100
+LST-00391,agent20@example-estates.com,2023-03-13,Parkview,detached,1258,3,1,1960,D,,1.69,324100
+LST-00392,agent1@example-estates.com,2023-01-05,Meadowbank,semi-detached,1007,2,1,1981,B,1.0,0.63,215700
+LST-00393,agent34@example-estates.com,2024-09-30,Old Town,terraced,1186,3,2,1922,C,2.0,0.26,222500
+LST-00394,agent12@example-estates.com,2024-01-30,Northgate,semi-detached,1159,3,1,1943,F,4.0,2.15,166800
+LST-00395,agent6@example-estates.com,2023-08-17,Northgate,terraced,1030,3,2,1905,D,,1.66,128400
+LST-00396,agent33@example-estates.com,2023-04-21,Northgate,semi-detached,1293,2,1,1948,B,2.0,1.15,192800
+LST-00397,agent3@example-estates.com,2023-08-24,Old Town,flat,669,2,1,1995,C,1.0,5.36,116100
+LST-00398,agent4@example-estates.com,2023-12-16,Riverside,flat,722,2,1,2012,D,1.0,3.48,139400
+LST-00399,agent29@example-estates.com,2024-01-18,Parkview,semi-detached,1184,3,1,1967,E,5.0,0.1,287400
+LST-00400,agent26@example-estates.com,2023-10-02,Northgate,flat,717,2,1,1982,B,1.0,0.61,126400
+LST-00401,agent37@example-estates.com,2023-04-22,Parkview,detached,1571,4,3,1928,F,2.0,1.5,397900
+LST-00402,agent38@example-estates.com,2024-06-05,Eastfield,terraced,904,2,1,1932,B,,1.65,149100
+LST-00403,agent35@example-estates.com,2024-09-16,Industrial Park,terraced,910,2,1,1991,E,4.0,5.0,115200
+LST-00404,agent31@example-estates.com,2024-09-12,Docklands,semi-detached,1082,2,1,1933,D,,1.21,187300
+LST-00405,agent30@example-estates.com,2023-06-15,Docklands,flat,640,1,1,1922,E,1.0,0.66,66400
+LST-00406,agent13@example-estates.com,2024-04-19,Northgate,terraced,1152,3,2,1959,D,3.0,0.61,190400
+LST-00407,agent8@example-estates.com,2023-04-23,Riverside,flat,685,2,1,1961,D,4.0,0.84,165500
+LST-00408,agent40@example-estates.com,2023-01-16,Industrial Park,terraced,1194,2,2,1905,E,,3.26,117000
+LST-00409,agent19@example-estates.com,2024-09-15,Parkview,detached,2056,4,2,1996,D,2.0,1.99,396900
+LST-00410,agent38@example-estates.com,2023-09-30,Old Town,terraced,856,2,2,1892,E,3.0,0.71,185500
+LST-00411,agent23@example-estates.com,2023-04-03,Eastfield,detached,1372,2,2,2003,D,5.0,4.18,300800
+LST-00412,agent40@example-estates.com,2023-12-31,Northgate,flat,573,1,1,1969,F,4.0,0.74,97000
+LST-00413,agent19@example-estates.com,2023-12-12,Riverside,semi-detached,1103,2,1,1942,B,3.0,2.27,316700
+LST-00414,agent32@example-estates.com,2023-03-24,Meadowbank,detached,1516,3,1,1943,D,4.0,3.16,291700
+LST-00415,agent15@example-estates.com,2024-12-16,Meadowbank,detached,1680,4,1,1893,B,5.0,2.77,317900
+LST-00416,agent1@example-estates.com,2024-12-15,Riverside,flat,351,1,1,1984,C,3.0,0.51,104300
+LST-00417,agent37@example-estates.com,2024-03-06,Meadowbank,flat,744,3,2,1993,E,,2.04,134200
+LST-00418,agent11@example-estates.com,2023-07-15,Docklands,terraced,1056,3,2,2014,B,3.0,1.72,176200
+LST-00419,agent33@example-estates.com,2023-04-02,Old Town,semi-detached,1040,2,2,1909,C,,1.27,222100
+LST-00420,agent35@example-estates.com,2023-11-07,Docklands,semi-detached,1210,3,1,1999,C,2.0,0.49,193000
+LST-00421,agent35@example-estates.com,2023-12-24,Parkview,terraced,1056,2,1,1945,F,,1.94,195300
+LST-00422,agent6@example-estates.com,2024-03-28,Northgate,semi-detached,1386,4,3,2012,E,2.0,2.69,278800
+LST-00423,agent29@example-estates.com,2024-09-19,Northgate,flat,714,2,1,1957,D,4.0,3.54,102700
+LST-00424,agent28@example-estates.com,2024-06-09,Eastfield,terraced,706,2,1,1958,A,5.0,3.74,129000
+LST-00425,agent33@example-estates.com,2023-01-15,Old Town,terraced,463,1,1,1969,D,1.0,1.56,117700
+LST-00426,agent3@example-estates.com,2024-06-30,Northgate,flat,543,1,1,1914,D,5.0,2.7,70400
+LST-00427,agent4@example-estates.com,2023-04-17,Meadowbank,semi-detached,1021,4,3,2003,D,4.0,1.74,292200
+LST-00428,agent19@example-estates.com,2023-04-06,Meadowbank,detached,1405,4,3,1958,D,2.0,1.66,249000
+LST-00429,agent32@example-estates.com,2024-11-09,Parkview,semi-detached,1331,4,2,1909,D,1.0,2.52,335100
+LST-00430,agent28@example-estates.com,2024-07-30,Docklands,flat,569,2,1,1968,D,1.0,0.71,78900
+LST-00431,agent40@example-estates.com,2023-12-09,Old Town,semi-detached,1042,2,1,1924,D,5.0,0.24,241600
+LST-00432,agent3@example-estates.com,2024-06-23,Docklands,flat,679,1,1,1903,D,,3.26,59700
+LST-00433,agent17@example-estates.com,2024-10-07,Old Town,terraced,1395,5,3,2002,E,1.0,1.01,321600
+LST-00434,agent30@example-estates.com,2023-01-20,Old Town,flat,590,1,1,1930,F,3.0,0.48,134200
+LST-00435,agent21@example-estates.com,2023-07-07,Parkview,flat,683,2,1,2006,E,2.0,1.02,142900
+LST-00436,agent8@example-estates.com,2023-09-18,Meadowbank,detached,1846,5,2,1897,D,5.0,4.14,429800
+LST-00437,agent34@example-estates.com,2024-12-26,Riverside,flat,593,1,1,1951,B,3.0,1.37,109500
+LST-00438,agent5@example-estates.com,2023-09-19,Old Town,flat,801,2,1,2023,D,2.0,0.7,173200
+LST-00439,agent18@example-estates.com,2023-04-20,Northgate,semi-detached,985,4,3,1924,A,1.0,3.76,156300
+LST-00440,agent2@example-estates.com,2024-09-15,Old Town,flat,692,2,1,1971,E,2.0,1.18,161400
+LST-00441,agent1@example-estates.com,2024-10-20,Northgate,terraced,1075,3,2,1926,B,5.0,1.54,172300
+LST-00442,agent32@example-estates.com,2023-08-22,Eastfield,terraced,1166,3,2,1994,E,,2.19,160800
+LST-00443,agent28@example-estates.com,2024-08-11,Old Town,terraced,615,1,1,1947,D,1.0,0.68,146500
+LST-00444,agent29@example-estates.com,2024-03-14,Riverside,flat,543,1,1,2009,C,2.0,0.27,182500
+LST-00445,agent15@example-estates.com,2024-12-10,Old Town,flat,689,2,1,1900,C,4.0,2.48,111200
+LST-00446,agent1@example-estates.com,2023-10-18,Northgate,terraced,834,2,1,2009,E,5.0,0.68,171400
+LST-00447,agent12@example-estates.com,2024-03-23,Parkview,flat,584,1,1,1956,C,5.0,3.33,102600
+LST-00448,agent9@example-estates.com,2024-11-19,Meadowbank,terraced,837,2,1,1944,B,5.0,0.67,164200
+LST-00449,agent30@example-estates.com,2024-01-30,Old Town,flat,736,2,1,1964,B,,4.45,144200
+LST-00450,agent25@example-estates.com,2024-03-20,Parkview,semi-detached,803,1,1,2016,F,1.0,8.8,116300
+LST-00451,agent1@example-estates.com,2023-07-10,Riverside,terraced,786,2,1,1893,D,5.0,2.0,199700
+LST-00452,agent2@example-estates.com,2023-11-24,Industrial Park,terraced,1093,3,1,1994,E,5.0,2.0,144600
+LST-00453,agent27@example-estates.com,2024-10-05,Docklands,semi-detached,1162,3,2,1928,A,5.0,3.67,184100
+LST-00454,agent22@example-estates.com,2023-09-24,Northgate,semi-detached,999,2,1,1923,C,1.0,0.7,145900
+LST-00455,agent1@example-estates.com,2024-03-21,Docklands,semi-detached,1252,4,2,1965,C,3.0,2.48,231000
+LST-00456,agent13@example-estates.com,2023-01-24,Old Town,terraced,1173,2,1,1999,F,3.0,4.35,236200
+LST-00457,agent4@example-estates.com,2023-11-24,Riverside,semi-detached,1073,3,2,1959,F,4.0,4.59,229200
+LST-00458,agent3@example-estates.com,2024-11-08,Riverside,terraced,861,3,2,1971,E,4.0,1.83,222400
+LST-00459,agent9@example-estates.com,2024-06-25,Northgate,detached,1530,4,2,2017,F,3.0,1.74,289100
+LST-00460,agent6@example-estates.com,2023-09-15,Riverside,detached,1834,4,2,1916,B,1.0,0.61,470100
+LST-00461,agent17@example-estates.com,2023-09-07,Eastfield,flat,643,1,1,1911,C,2.0,0.2,99300
+LST-00462,agent15@example-estates.com,2023-02-25,Northgate,detached,1630,4,2,1963,A,4.0,0.45,389900
+LST-00463,agent3@example-estates.com,2024-07-18,Meadowbank,terraced,1139,3,1,2011,D,2.0,3.28,185100
+LST-00464,agent10@example-estates.com,2023-02-04,Meadowbank,semi-detached,872,1,1,1923,D,1.0,2.91,136200
+LST-00465,agent29@example-estates.com,2023-12-26,Riverside,terraced,1075,3,1,1897,A,4.0,2.56,221200
+LST-00466,agent11@example-estates.com,2024-04-21,Parkview,detached,1308,3,1,1904,C,2.0,1.28,344100
+LST-00467,agent1@example-estates.com,2024-02-19,Meadowbank,semi-detached,1454,3,2,1997,D,1.0,0.19,300700
+LST-00468,agent21@example-estates.com,2023-07-24,Northgate,flat,436,1,1,2011,E,,1.2,82200
+LST-00469,agent33@example-estates.com,2024-07-11,Northgate,detached,1912,4,2,1940,C,2.0,3.12,390700
+LST-00470,agent19@example-estates.com,2024-02-21,Northgate,terraced,803,1,1,2003,C,3.0,1.89,107700
+LST-00471,agent40@example-estates.com,2023-06-15,Parkview,terraced,918,1,1,1904,B,3.0,2.24,166000
+LST-00472,agent9@example-estates.com,2023-10-01,Eastfield,flat,952,3,2,1909,F,,0.93,141000
+LST-00473,agent31@example-estates.com,2024-09-18,Northgate,flat,451,2,2,1999,E,5.0,3.63,95100
+LST-00474,agent16@example-estates.com,2024-02-07,Parkview,flat,677,2,1,1914,F,2.0,0.95,115200
+LST-00475,agent31@example-estates.com,2023-05-09,Meadowbank,flat,530,2,1,1949,C,3.0,0.84,97100
+LST-00476,agent22@example-estates.com,2024-12-02,Meadowbank,terraced,645,2,1,1988,C,2.0,0.29,158400
+LST-00477,agent5@example-estates.com,2024-02-03,Docklands,detached,1412,3,2,2004,C,4.0,0.47,322900
+LST-00478,agent3@example-estates.com,2024-12-26,Eastfield,flat,573,1,1,1942,D,5.0,1.52,93200
+LST-00479,agent35@example-estates.com,2023-03-14,Riverside,flat,546,2,1,1971,D,,1.49,133200
+LST-00480,agent3@example-estates.com,2024-10-31,Old Town,detached,2116,6,3,1937,B,1.0,2.51,526900
+LST-00481,agent31@example-estates.com,2024-01-11,Industrial Park,detached,2260,6,3,1954,C,1.0,0.84,327900
+LST-00482,agent13@example-estates.com,2023-02-11,Meadowbank,flat,847,3,1,1896,C,3.0,0.33,112400
+LST-00483,agent25@example-estates.com,2023-05-31,Eastfield,flat,647,2,1,1930,E,5.0,1.99,112400
+LST-00484,agent34@example-estates.com,2024-03-11,Riverside,flat,648,1,1,1970,C,1.0,1.52,150000
+LST-00485,agent9@example-estates.com,2024-04-04,Docklands,flat,504,1,1,1912,C,5.0,0.68,86100
+LST-00486,agent11@example-estates.com,2023-10-30,Northgate,terraced,934,2,1,2017,A,3.0,1.38,164100
+LST-00487,agent18@example-estates.com,2024-04-14,Eastfield,semi-detached,1480,4,2,1954,B,5.0,0.97,237300
+LST-00488,agent38@example-estates.com,2024-11-15,Meadowbank,flat,521,2,1,1992,C,5.0,0.78,91900
+LST-00489,agent11@example-estates.com,2024-05-08,Riverside,flat,512,1,1,1963,C,3.0,1.15,127100
+LST-00490,agent24@example-estates.com,2023-09-10,Eastfield,flat,646,2,1,1983,B,5.0,0.58,115900
+LST-00491,agent35@example-estates.com,2023-10-16,Parkview,flat,808,1,1,1996,E,5.0,2.28,145000
+LST-00492,agent24@example-estates.com,2024-07-04,Riverside,semi-detached,1014,2,1,2005,E,4.0,1.29,268100
+LST-00493,agent21@example-estates.com,2024-03-14,Eastfield,detached,1189,4,2,1948,C,3.0,2.34,278300
+LST-00494,agent25@example-estates.com,2023-06-13,Docklands,flat,560,1,1,1910,B,3.0,3.13,68700
+LST-00495,agent17@example-estates.com,2023-05-09,Old Town,terraced,1191,3,1,2003,D,,0.75,281600
+LST-00496,agent8@example-estates.com,2024-06-29,Parkview,flat,457,2,1,1920,E,1.0,2.99,69700
+LST-00497,agent2@example-estates.com,2024-02-11,Northgate,flat,738,2,1,1945,D,3.0,1.6,92300
+LST-00498,agent16@example-estates.com,2023-02-17,Docklands,semi-detached,1309,3,1,1908,F,4.0,1.46,186500
+LST-00499,agent18@example-estates.com,2024-11-15,Eastfield,flat,741,2,2,1938,D,1.0,2.06,89500
+LST-00500,agent5@example-estates.com,2023-12-15,Eastfield,detached,1242,4,2,1931,D,1.0,1.97,248000
+LST-00501,agent16@example-estates.com,2023-04-15,Docklands,terraced,1045,3,1,1916,D,3.0,2.25,159400
+LST-00502,agent34@example-estates.com,2024-12-02,Industrial Park,detached,1425,4,2,1891,E,1.0,4.06,217500
+LST-00503,agent18@example-estates.com,2023-07-29,Parkview,detached,1546,3,2,2022,C,1.0,1.7,329800
+LST-00504,agent4@example-estates.com,2023-07-23,Northgate,flat,566,1,1,1903,E,4.0,1.03,64000
+LST-00505,agent32@example-estates.com,2023-10-28,Northgate,flat,612,1,1,1933,E,5.0,0.75,87800
+LST-00506,agent20@example-estates.com,2023-01-01,Northgate,flat,684,1,1,1960,D,4.0,1.2,97200
+LST-00507,agent12@example-estates.com,2024-12-12,Docklands,flat,573,1,1,2004,C,3.0,4.22,77300
+LST-00508,agent9@example-estates.com,2024-05-09,Industrial Park,flat,671,1,1,1930,D,2.0,1.3,89600
+LST-00509,agent34@example-estates.com,2023-10-21,Old Town,terraced,818,3,1,2003,C,1.0,1.79,243700
+LST-00510,agent32@example-estates.com,2024-10-10,Parkview,terraced,1076,2,2,2001,C,2.0,2.66,184500
+LST-00511,agent37@example-estates.com,2024-07-14,Parkview,detached,1357,3,1,1956,A,,1.68,362500
+LST-00512,agent21@example-estates.com,2023-07-18,Eastfield,detached,1517,3,2,1904,C,1.0,1.9,285700
+LST-00513,agent18@example-estates.com,2023-04-29,Docklands,terraced,1270,3,1,1940,B,2.0,0.6,188500
+LST-00514,agent5@example-estates.com,2024-10-17,Meadowbank,semi-detached,1442,4,1,2019,B,4.0,1.2,283500
+LST-00515,agent25@example-estates.com,2024-08-19,Parkview,detached,1471,3,1,1908,C,5.0,0.37,326600
+LST-00516,agent14@example-estates.com,2024-07-31,Meadowbank,flat,417,1,1,1898,A,4.0,0.95,102600
+LST-00517,agent26@example-estates.com,2023-11-08,Eastfield,flat,554,1,1,1939,C,,0.87,100300
+LST-00518,agent38@example-estates.com,2023-01-22,Old Town,semi-detached,1104,2,1,1913,E,4.0,2.07,263100
+LST-00519,agent39@example-estates.com,2024-02-08,Eastfield,flat,596,2,1,1981,F,5.0,0.86,117100
+LST-00520,agent16@example-estates.com,2023-08-23,Old Town,detached,1417,4,2,1959,D,4.0,1.93,468900
+LST-00521,agent19@example-estates.com,2024-10-11,Riverside,semi-detached,1149,3,1,1988,B,4.0,2.44,336700
+LST-00522,agent36@example-estates.com,2023-12-27,Industrial Park,detached,1584,3,2,1913,C,5.0,0.6,237700
+LST-00523,agent7@example-estates.com,2024-08-14,Riverside,flat,806,3,2,1924,D,4.0,0.45,234200
+LST-00524,agent15@example-estates.com,2023-05-03,Eastfield,flat,568,1,1,1907,E,4.0,1.5,94000
+LST-00525,agent25@example-estates.com,2024-09-21,Meadowbank,terraced,1105,2,1,1940,C,5.0,0.59,214200
+LST-00526,agent18@example-estates.com,2024-08-24,Eastfield,terraced,956,3,2,2006,D,2.0,1.11,172600
+LST-00527,agent18@example-estates.com,2024-01-28,Meadowbank,flat,590,2,1,1944,C,1.0,0.24,110700
+LST-00528,agent25@example-estates.com,2024-12-09,Old Town,terraced,894,3,1,1946,D,1.0,4.47,165700
+LST-00529,agent37@example-estates.com,2023-09-18,Parkview,terraced,753,2,1,1932,B,2.0,0.96,130400
+LST-00530,agent34@example-estates.com,2023-06-01,Parkview,flat,592,2,1,1921,B,1.0,0.3,116600
+LST-00531,agent30@example-estates.com,2023-06-18,Meadowbank,terraced,1194,4,2,1935,B,2.0,1.29,221400
+LST-00532,agent16@example-estates.com,2023-01-12,Parkview,flat,578,1,1,1975,B,1.0,1.63,97400
+LST-00533,agent39@example-estates.com,2024-04-21,Eastfield,detached,1295,3,2,1939,D,5.0,0.88,280800
+LST-00534,agent15@example-estates.com,2023-05-04,Northgate,detached,884,2,1,1915,D,3.0,4.44,129300
+LST-00535,agent1@example-estates.com,2024-08-06,Industrial Park,terraced,1115,3,1,2018,D,1.0,3.5,99700
+LST-00536,agent14@example-estates.com,2024-02-08,Meadowbank,flat,501,1,1,2001,E,3.0,1.98,77900
+LST-00537,agent1@example-estates.com,2024-11-29,Meadowbank,flat,798,2,2,1975,F,,2.74,143300
+LST-00538,agent8@example-estates.com,2024-05-29,Parkview,flat,601,2,1,1999,E,,4.57,106900
+LST-00539,agent20@example-estates.com,2024-05-14,Docklands,flat,442,1,1,1898,C,,0.72,57000
+LST-00540,agent40@example-estates.com,2024-03-13,Meadowbank,terraced,843,1,1,1992,A,4.0,0.99,180900
+LST-00541,agent15@example-estates.com,2023-09-27,Northgate,semi-detached,1177,3,1,1983,D,4.0,1.33,222800
+LST-00542,agent25@example-estates.com,2023-02-13,Old Town,detached,1692,5,2,1926,D,5.0,1.64,533200
+LST-00543,agent37@example-estates.com,2024-01-18,Industrial Park,terraced,855,2,1,1923,A,,0.87,101700
+LST-00544,agent6@example-estates.com,2024-12-11,Old Town,semi-detached,1181,2,1,1987,D,1.0,1.17,247900
+LST-00545,agent36@example-estates.com,2023-09-25,Old Town,flat,491,1,1,1918,E,5.0,2.6,126700
+LST-00546,agent11@example-estates.com,2024-08-22,Meadowbank,terraced,811,2,1,1982,E,3.0,0.1,173900
+LST-00547,agent14@example-estates.com,2023-12-30,Riverside,detached,1933,4,2,2013,D,3.0,1.64,633100
+LST-00548,agent24@example-estates.com,2023-07-06,Parkview,terraced,1101,3,2,2012,F,2.0,1.86,229200
+LST-00549,agent8@example-estates.com,2023-11-04,Old Town,terraced,975,2,1,1903,B,5.0,0.71,196900
+LST-00550,agent7@example-estates.com,2023-04-02,Parkview,terraced,1163,3,2,1998,D,4.0,0.73,259800
+LST-00551,agent6@example-estates.com,2023-04-15,Eastfield,terraced,1033,3,1,1890,B,5.0,2.18,173700
+LST-00552,agent39@example-estates.com,2023-07-07,Meadowbank,semi-detached,1172,3,1,1996,D,4.0,1.31,226800
+LST-00553,agent23@example-estates.com,2023-10-04,Northgate,flat,681,2,2,1897,E,3.0,1.75,73600
+LST-00554,agent22@example-estates.com,2023-11-09,Northgate,semi-detached,1145,3,1,1920,E,3.0,0.26,225800
+LST-00555,agent2@example-estates.com,2024-11-12,Riverside,semi-detached,1184,2,1,2011,F,4.0,2.59,254400
+LST-00556,agent22@example-estates.com,2024-04-09,Riverside,flat,648,2,1,2007,D,3.0,0.64,158900
+LST-00557,agent21@example-estates.com,2023-09-28,Parkview,detached,1557,4,2,1911,A,4.0,0.37,427600
+LST-00558,agent9@example-estates.com,2023-07-03,Docklands,flat,679,2,1,1947,E,1.0,3.11,74700
+LST-00559,agent1@example-estates.com,2023-11-25,Northgate,flat,526,1,1,1993,A,3.0,1.55,90300
+LST-00560,agent12@example-estates.com,2024-09-13,Northgate,semi-detached,1217,2,1,1942,C,2.0,2.14,150300
+LST-00561,agent29@example-estates.com,2023-04-11,Northgate,terraced,1162,3,1,2021,F,2.0,1.5,190300
+LST-00562,agent30@example-estates.com,2023-12-12,Old Town,detached,1544,4,2,2003,F,4.0,3.12,428500
+LST-00563,agent31@example-estates.com,2024-01-03,Parkview,flat,730,2,1,2020,D,,2.91,121800
+LST-00564,agent8@example-estates.com,2023-05-07,Northgate,detached,1970,5,2,1939,C,3.0,1.3,373900
+LST-00565,agent4@example-estates.com,2023-04-03,Eastfield,terraced,897,2,1,1950,D,2.0,1.72,135100
+LST-00566,agent23@example-estates.com,2023-02-17,Meadowbank,detached,1733,4,1,1977,D,5.0,0.25,516800
+LST-00567,agent39@example-estates.com,2024-11-01,Northgate,terraced,856,2,1,1976,F,1.0,1.24,110600
+LST-00568,agent22@example-estates.com,2023-01-23,Parkview,terraced,881,3,1,1899,F,3.0,1.54,189900
+LST-00569,agent34@example-estates.com,2023-01-20,Old Town,flat,416,2,1,1930,B,1.0,2.63,120900
+LST-00570,agent9@example-estates.com,2023-05-07,Parkview,semi-detached,1141,3,2,1936,D,2.0,2.51,247400
+LST-00571,agent35@example-estates.com,2024-09-12,Old Town,detached,1700,4,2,1971,E,5.0,4.43,477900
+LST-00572,agent36@example-estates.com,2024-01-03,Eastfield,flat,522,1,1,1971,D,5.0,3.34,68700
+LST-00573,agent35@example-estates.com,2023-08-23,Docklands,semi-detached,1234,4,2,1974,A,4.0,1.5,209200
+LST-00574,agent35@example-estates.com,2024-04-22,Docklands,flat,512,1,1,2012,E,2.0,2.32,77600
+LST-00575,agent3@example-estates.com,2024-06-20,Parkview,flat,471,1,1,1921,D,5.0,0.77,108000
+LST-00576,agent19@example-estates.com,2023-05-10,Northgate,semi-detached,948,3,1,1934,B,1.0,2.36,124800
+LST-00577,agent24@example-estates.com,2024-10-27,Meadowbank,detached,1809,4,2,1904,C,3.0,2.49,346600
+LST-00578,agent10@example-estates.com,2024-03-02,Eastfield,detached,1705,4,2,1907,B,2.0,2.2,355900
+LST-00579,agent30@example-estates.com,2024-05-03,Meadowbank,detached,1323,3,2,1911,B,4.0,3.42,323100
+LST-00580,agent15@example-estates.com,2024-01-16,Eastfield,terraced,977,1,1,1977,C,1.0,0.6,135200
+LST-00581,agent3@example-estates.com,2024-05-21,Eastfield,terraced,1421,3,2,1915,E,3.0,6.25,206000
+LST-00582,agent33@example-estates.com,2023-11-16,Old Town,terraced,1163,1,1,1950,C,2.0,1.31,218700
+LST-00583,agent8@example-estates.com,2024-06-22,Meadowbank,semi-detached,780,2,1,1945,F,3.0,1.05,178900
+LST-00584,agent14@example-estates.com,2023-12-13,Parkview,terraced,1145,2,2,1999,C,2.0,3.29,213200
+LST-00585,agent35@example-estates.com,2024-03-09,Docklands,detached,1490,4,2,1926,F,5.0,3.53,232200
+LST-00586,agent18@example-estates.com,2024-05-09,Northgate,semi-detached,961,2,1,1963,D,2.0,3.14,133400
+LST-00587,agent26@example-estates.com,2023-08-19,Industrial Park,flat,694,2,1,1922,B,2.0,0.3,73700
+LST-00588,agent39@example-estates.com,2024-03-07,Northgate,semi-detached,1425,4,2,1986,D,4.0,1.12,272100
+LST-00589,agent33@example-estates.com,2024-07-05,Docklands,semi-detached,1238,2,1,1978,D,5.0,1.0,189500
+LST-00590,agent12@example-estates.com,2023-01-27,Parkview,flat,762,2,1,1974,B,3.0,3.72,129900
+LST-00591,agent17@example-estates.com,2024-03-19,Parkview,flat,792,2,1,1938,F,1.0,1.25,112900
+LST-00592,agent29@example-estates.com,2023-11-20,Meadowbank,detached,1708,4,2,2018,F,5.0,1.44,391900
+LST-00593,agent8@example-estates.com,2023-03-05,Industrial Park,terraced,847,1,1,1903,F,4.0,0.25,98700
+LST-00594,agent27@example-estates.com,2024-06-05,Northgate,flat,578,3,1,2002,E,3.0,2.16,89200
+LST-00595,agent21@example-estates.com,2023-12-27,Parkview,flat,380,1,1,2002,D,,1.83,109100
+LST-00596,agent6@example-estates.com,2023-02-26,Riverside,flat,571,1,1,2023,A,4.0,3.07,168700
+LST-00597,agent33@example-estates.com,2023-09-08,Northgate,terraced,848,2,1,1981,D,4.0,0.38,150900
+LST-00598,agent38@example-estates.com,2024-10-04,Meadowbank,flat,551,1,1,2003,A,3.0,0.99,118300
+LST-00599,agent7@example-estates.com,2024-07-10,Northgate,semi-detached,1443,4,2,1909,E,2.0,1.09,223100
+LST-00600,agent12@example-estates.com,2023-09-11,Northgate,detached,1707,4,2,1930,E,1.0,2.07,316600
+LST-00316,agent21@example-estates.com,2023-09-24,Riverside,semi-detached,945,3,2,1930,D,5.0,2.03,272800
+LST-00342,agent2@example-estates.com,2024-05-22,Parkview,terraced,727,2,1,1955,C,4.0,0.7,188600
+LST-00201,agent24@example-estates.com,2024-03-24,Eastfield,semi-detached,1160,2,1,1903,F,4.0,3.46,155600
+LST-00066,agent3@example-estates.com,2023-05-10,Eastfield,detached,1469,4,2,2002,C,,3.37,420400
+LST-00374,agent3@example-estates.com,2023-08-18,Meadowbank,semi-detached,1394,3,1,1988,B,,1.28,302000
+LST-00154,agent33@example-estates.com,2023-12-19,Parkview,flat,1012,2,1,1980,D,5.0,0.32,195100

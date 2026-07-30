@@ -171,3 +171,55 @@ class TestConfirmation:
             json={"job_id": 99999999, "target_column": "x", "task_type": "regression"},
         )
         assert resp.status_code == 404
+
+
+class TestUnknownFieldsAreRejected:
+    """A silently-ignored field here decides whether PII reaches the model.
+
+    ``exclude`` is easy to guess wrong -- ``include`` is the obvious alternative
+    and it is *inverted*, so a caller who guesses gets the opposite of what they
+    asked for. Pydantic ignores unknown keys by default, which turned that
+    mistake into a 200 and a model quietly trained on the column the caller
+    meant to withhold. It has to be a 422.
+    """
+
+    def test_a_misnamed_column_field_is_a_422_not_a_silent_default(self, client, upload):
+        job_id = upload().json()["job_id"]
+        response = client.post(
+            "/jobs",
+            json={
+                "job_id": job_id,
+                "target_column": "churn",
+                "task_type": "classification",
+                "columns": [{"name": "city", "include": False}],
+            },
+        )
+        assert response.status_code == 422
+        # The message has to name the offending field, or it does not help.
+        assert "include" in response.text
+
+    def test_a_misnamed_top_level_field_is_also_rejected(self, client, upload):
+        job_id = upload().json()["job_id"]
+        response = client.post(
+            "/jobs",
+            json={
+                "job_id": job_id,
+                "target_column": "churn",
+                "task_type": "classification",
+                "targets": ["churn"],
+            },
+        )
+        assert response.status_code == 422
+
+    def test_the_correct_shape_still_works(self, client, upload):
+        job_id = upload().json()["job_id"]
+        response = client.post(
+            "/jobs",
+            json={
+                "job_id": job_id,
+                "target_column": "churn",
+                "task_type": "classification",
+                "columns": [{"name": "city", "is_pii": False, "exclude": True}],
+            },
+        )
+        assert response.status_code == 200

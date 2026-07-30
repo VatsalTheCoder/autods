@@ -128,6 +128,12 @@ services:
       # Mounted so ruff and pytest configuration changes take effect without
       # an image rebuild.
       - ./pyproject.toml:/code/pyproject.toml
+      # The example datasets and the scripts that generate them. Kept out of the
+      # image -- they are development material, not something a deployed
+      # container should carry -- but reachable here so a generator can be run
+      # and its output landed straight in the repo.
+      - ./data:/code/data
+      - ./scripts:/code/scripts
     depends_on:
       postgres:
         condition: service_healthy
