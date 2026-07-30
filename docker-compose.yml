@@ -135,6 +135,11 @@ services:
       # Mounted so ruff and pytest configuration changes take effect without
       # an image rebuild.
       - ./pyproject.toml:/code/pyproject.toml
+      # The build plan is not in the image -- it is documentation, not code --
+      # but a test asserts the landing page lists every section the plan defines.
+      # Without this the test passes in CI (which has the whole checkout) and
+      # fails here, which is the worst way round for a discrepancy to break.
+      - ./BUILD_PLAN.md:/code/BUILD_PLAN.md
       # The example datasets and the scripts that generate them. Kept out of the
       # image -- they are development material, not something a deployed
       # container should carry -- but reachable here so a generator can be run
