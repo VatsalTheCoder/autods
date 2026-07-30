@@ -16,6 +16,7 @@ from app.ml.contracts import (
     ClusterProfile,
     CriticFinding,
     CriticReport,
+    DroppedColumn,
     EvaluationReport,
     ExplainabilityReport,
     FeatureImportance,
@@ -123,6 +124,52 @@ class TestWhatIsDeliberatelyNotChunked:
         # One passage about cleaning as a whole, not one per column.
         assert len(chunks) == 1
         assert "cleaning" in chunks[0].heading.lower()
+
+
+class TestCleaningThatDroppedColumns:
+    """The branch that only runs when cleaning actually dropped something.
+
+    ``dropped_columns`` holds ``DroppedColumn`` models, and the passage used to
+    join them as if they were strings. Every run before a real dataset arrived
+    dropped nothing, so the guard took the else and a ``TypeError`` sat there
+    unexecuted -- the pipeline reported a completed chat_index node and indexed
+    zero passages, on the first dataset that dropped a column.
+    """
+
+    @staticmethod
+    def _report() -> CleaningReport:
+        return CleaningReport(
+            n_rows_before=100_459,
+            n_rows_after=100_459,
+            n_columns_before=11,
+            n_columns_after=8,
+            dropped_columns=[
+                DroppedColumn(name="nameOrig", reason="excluded at the schema checkpoint"),
+                DroppedColumn(name="nameDest", reason="excluded at the schema checkpoint"),
+                DroppedColumn(name="isFlaggedFraud", reason="constant (one or no distinct value)"),
+            ],
+        )
+
+    def test_it_chunks_rather_than_raising(self):
+        chunks = build_chunks(cleaning=self._report())
+        assert len(chunks) == 1
+
+    def test_the_dropped_columns_are_named(self):
+        content = build_chunks(cleaning=self._report())[0].content
+        assert "It dropped 3 columns" in content
+        for name in ("nameOrig", "nameDest", "isFlaggedFraud"):
+            assert name in content
+
+    def test_each_reason_is_included(self):
+        """ "Why was this column dropped?" is the question the chat gets asked."""
+        content = build_chunks(cleaning=self._report())[0].content
+        assert "excluded at the schema checkpoint" in content
+        assert "constant (one or no distinct value)" in content
+
+    def test_the_object_repr_never_leaks_into_the_passage(self):
+        """A passage containing ``DroppedColumn(...)`` would be retrievable junk."""
+        content = build_chunks(cleaning=self._report())[0].content
+        assert "DroppedColumn" not in content
 
 
 class TestTolerance:

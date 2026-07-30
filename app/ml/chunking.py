@@ -334,9 +334,14 @@ def _add_data(
 
     if cleaning is not None:
         removed = cleaning.n_rows_before - cleaning.n_rows_after
+        # ``dropped_columns`` holds DroppedColumn models, not strings -- joining
+        # them directly raised a TypeError. The branch is guarded by the list
+        # being non-empty, and every run until a dataset came along that actually
+        # dropped something took the else. The reason is included because "why
+        # was this column dropped?" is precisely what someone asks the chat.
         dropped = (
             f" It dropped {len(cleaning.dropped_columns)} columns: "
-            + ", ".join(cleaning.dropped_columns)
+            + ", ".join(f"{c.name} ({c.reason})" for c in cleaning.dropped_columns)
             + "."
             if cleaning.dropped_columns
             else ""
