@@ -22,6 +22,18 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Progress · AutoDS", page_icon="📊", layout="wide")
 
+# Streamlit runs each page as its own script, so a page cannot import a sibling
+# module without ui/ being importable. The path work has to happen before the
+# import, which is what the noqa below is for.
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from auth import require_access  # noqa: E402
+
+require_access()
+
 st.title("Pipeline progress")
 
 # Terminal states stop the auto-refresh loop; everything else is still moving.

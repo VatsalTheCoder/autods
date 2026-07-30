@@ -243,6 +243,50 @@ inherited as excluded, since it is the column being predicted. It stays marked
 what detection had decided. A live run modelled an `agent_email` column that way
 and the critic remarked on the model's reliance on it.)
 
+## Putting it on a public URL
+
+Section 11 wants a URL an examiner can open. A Cloudflare quick tunnel gives one
+in about a minute, for nothing, without AWS.
+
+**Read this first.** The application has no user accounts: every job belongs to a
+single `DEV_USER_ID` and `GET /jobs` returns all of them. Exposing it as-is would
+hand anyone with the link every dataset ever uploaded, plus the ability to spend
+the project's API quota. So the tunnel publishes **only the UI**, and the UI
+demands a shared key.
+
+```bash
+# 1. A key. Anything unguessable; this goes in .env, which is gitignored.
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+
+# 2. Put it in .env as AUTODS_ACCESS_TOKEN=..., then recreate the container.
+docker compose up -d --force-recreate ui
+
+# 3. Confirm the gate is live -- the page should refuse you.
+curl -s localhost:8501 >/dev/null && echo "up"
+
+# 4. Tunnel port 8501 only. Never 8000: the API has no gate and does not need
+#    one, because it is only reachable from the ui container over the Docker
+#    network.
+cloudflared tunnel --url http://localhost:8501
+```
+
+`cloudflared` prints a `https://<random>.trycloudflare.com` URL. Send it with
+`?k=<the key>` on the end and the link itself is the credential — the key is
+stripped from the address bar on arrival, so it does not linger in a screenshot
+or a shared browser's history.
+
+Verified end to end on 30 July 2026: with no key, with a wrong key, and
+deep-linking straight to `/Results`, the page renders the lock and none of the
+app's content. With the key it renders normally.
+
+Two caveats worth knowing:
+
+- **Quick tunnels are ephemeral.** The URL changes every time `cloudflared`
+  restarts, and dies with the process. Fine for a scheduled demo; for a URL that
+  has to survive in a submitted document you want a named tunnel against a
+  domain, or the AWS deployment.
+- **The laptop is the server.** Close it and the URL stops working.
+
 ## Shutdown
 
 ```bash

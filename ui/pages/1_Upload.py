@@ -24,6 +24,18 @@ UPLOAD_TIMEOUT_SECONDS = 120
 
 st.set_page_config(page_title="Upload · AutoDS", page_icon="📤", layout="wide")
 
+# Streamlit runs each page as its own script, so a page cannot import a sibling
+# module without ui/ being importable. The path work has to happen before the
+# import, which is what the noqa below is for.
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from auth import require_access  # noqa: E402
+
+require_access()
+
 st.title("Upload a dataset")
 st.caption("Upload a CSV to start a new analysis job, then confirm its schema.")
 
