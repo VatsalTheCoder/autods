@@ -320,6 +320,7 @@ def modeling_node(state: PipelineState) -> dict:
         task_type=state["task_type"],
         preprocessor=state["preprocessor"],
         use_smote=bool(plan and plan.use_smote),
+        time_column=state.get("time_column"),
     )
     with SessionLocal() as db:
         register_json_artifact(db, job_id, LEADERBOARD_ARTIFACT, leaderboard)

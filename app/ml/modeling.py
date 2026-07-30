@@ -57,7 +57,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold, TimeSeriesSplit
 from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
@@ -85,9 +85,63 @@ _N_ESTIMATORS = 100
 # that looks like data.
 _MIN_MINORITY_FOR_SMOTE = 6
 
+# A scratch column used only to sort rows into time order before splitting. It is
+# added and dropped inside cross-validation, so it never reaches the recipe and
+# cannot become a feature. The name is deliberately one no CSV would carry.
+_ORDER_KEY = "__autods_time_order__"
+
 
 class ModelingError(RuntimeError):
     """Cross-validation could not be run at all, with a reason for the user."""
+
+
+def order_by_time(frame: pd.DataFrame, time_column: str, warnings: list[str]) -> pd.DataFrame:
+    """Return ``frame`` sorted oldest-first by ``time_column``.
+
+    ``TimeSeriesSplit`` slices by *position*, so this has to happen before any
+    splitting or the folds are ordered by whatever sequence the CSV arrived in --
+    which would look time-aware in the report and be nothing of the sort.
+
+    The sort is stable, so rows sharing a timestamp keep their original order
+    rather than being shuffled arbitrarily between folds. Unreadable values sort
+    last and are counted in a warning: dropping those rows would quietly change
+    the dataset, and putting them first would let them into every training fold.
+
+    **A numeric column counts as a clock.** Plenty of real datasets carry time as
+    a counter rather than a date -- an hour index, epoch seconds, a day number.
+    PaySim, the dataset that prompted this whole feature, numbers its hours in a
+    ``step`` column and has no date anywhere. Refusing those would have meant
+    shipping time-ordered validation that could not be applied to the case that
+    motivated it. Ordering only needs the values to be *comparable*, which a
+    counter is.
+    """
+    if time_column not in frame.columns:
+        raise ModelingError(f"Time column {time_column!r} is not in the dataset.")
+
+    column = frame[time_column]
+    if pd.api.types.is_numeric_dtype(column):
+        ordered = pd.to_numeric(column, errors="coerce")
+        kind = "numbers"
+    else:
+        ordered = pd.to_datetime(column, errors="coerce")
+        kind = "dates"
+
+    if ordered.isna().all():
+        raise ModelingError(
+            f"Time column {time_column!r} holds no readable {kind}, so folds "
+            "cannot be ordered by it."
+        )
+    if ordered.isna().any():
+        warnings.append(
+            f"{int(ordered.isna().sum()):,} rows have no readable value in "
+            f"{time_column!r}; they were ordered last."
+        )
+
+    return (
+        frame.assign(**{_ORDER_KEY: ordered})
+        .sort_values(_ORDER_KEY, kind="stable", na_position="last")
+        .drop(columns=[_ORDER_KEY])
+    )
 
 
 @dataclass(slots=True)
@@ -329,6 +383,7 @@ def cross_validate_model(
     candidate: Candidate | None = None,
     resampler=None,
     splitter=None,
+    time_column: str | None = None,
 ) -> CrossValidationResult:
     """Run k-fold cross-validation, fitting the pipeline only inside each fold.
 
@@ -346,13 +401,27 @@ def cross_validate_model(
     if not features:
         raise ModelingError("No feature columns to train on.")
 
+    warnings: list[str] = []
+
+    # Time-ordered validation, when the user named a time column at the
+    # checkpoint. TimeSeriesSplit slices by *position*, so the rows have to be in
+    # time order before it sees them or the split means nothing at all -- it
+    # would happily "validate on the future" using whatever order the CSV
+    # happened to arrive in.
+    if time_column:
+        frame = order_by_time(frame, time_column, warnings)
+
     X = frame[features]
     y = frame[target]
 
-    warnings: list[str] = []
     if splitter is None:
         n_folds, splitter, strategy = _make_splitter(
-            y, task_type=task_type, cv_folds=cv_folds, random_seed=random_seed, warnings=warnings
+            y,
+            task_type=task_type,
+            cv_folds=cv_folds,
+            random_seed=random_seed,
+            warnings=warnings,
+            time_ordered=bool(time_column),
         )
     else:
         n_folds, strategy = splitter.get_n_splits(), type(splitter).__name__
@@ -428,6 +497,7 @@ def run_leaderboard(
     use_smote: bool = False,
     cv_folds: int | None = None,
     random_seed: int | None = None,
+    time_column: str | None = None,
 ) -> tuple[Leaderboard, CrossValidationResult]:
     """Cross-validate the whole roster and rank it (spec 7.7, 7.8).
 
@@ -451,10 +521,21 @@ def run_leaderboard(
     if random_seed is None:
         random_seed = settings.random_seed
 
-    y = frame[target]
     warnings: list[str] = []
+    # Ordered before the splitter is built, not after: the empty-fold check below
+    # inspects which rows land in which fold, and on an unordered frame it would
+    # be inspecting the wrong ones.
+    if time_column:
+        frame = order_by_time(frame, time_column, warnings)
+
+    y = frame[target]
     n_folds, splitter, strategy = _make_splitter(
-        y, task_type=task_type, cv_folds=cv_folds, random_seed=random_seed, warnings=warnings
+        y,
+        task_type=task_type,
+        cv_folds=cv_folds,
+        random_seed=random_seed,
+        warnings=warnings,
+        time_ordered=bool(time_column),
     )
 
     resampler = None
@@ -574,8 +655,23 @@ def _make_splitter(
     cv_folds: int,
     random_seed: int,
     warnings: list[str],
-) -> tuple[int, KFold | StratifiedKFold, str]:
+    time_ordered: bool = False,
+) -> tuple[int, KFold | StratifiedKFold | TimeSeriesSplit, str]:
     """Choose the splitter and a fold count the data can actually support.
+
+    ``time_ordered`` overrides everything below it. When the user has named a
+    time column, folds must respect it: each fold trains on rows that came before
+    the ones it is scored on, so a model is never asked to predict the past from
+    the future. That is a *different* leak from the one the rest of this module
+    guards -- preprocessing fitted across a split -- and neither implies the
+    other.
+
+    The cost is that time-ordered folds cannot be stratified, because which rows
+    fall in which fold is decided by the clock rather than by the label. On a
+    rare-event dataset an early fold can therefore contain no positive cases at
+    all. That is warned about rather than prevented: it is a real property of
+    validating a rare event chronologically, and hiding it by silently reverting
+    to random folds would be the worse answer.
 
     Stratified for classification, so every fold holds roughly the class
     proportions of the whole dataset -- without it, a rare class can be absent
@@ -591,6 +687,28 @@ def _make_splitter(
         raise ModelingError(f"Only {n_rows} rows available; cross-validation needs at least 4.")
 
     n_folds = min(cv_folds, n_rows)
+
+    if time_ordered:
+        # TimeSeriesSplit needs one more row than folds: fold k trains on
+        # everything before its test window, so the first window must have
+        # something behind it.
+        n_folds = max(2, min(n_folds, n_rows - 1))
+        splitter = TimeSeriesSplit(n_splits=n_folds)
+
+        if task_type == "classification":
+            empty = [
+                index
+                for index, (_, test_idx) in enumerate(splitter.split(y), start=1)
+                if y.iloc[test_idx].nunique(dropna=True) < 2
+            ]
+            if empty:
+                warnings.append(
+                    f"Folds ordered by time cannot be class-balanced. "
+                    f"{len(empty)} of {n_folds} validation folds contain a single "
+                    "class, so their threshold-free metrics are unreliable; the "
+                    "averages across folds are still reported."
+                )
+        return n_folds, splitter, "TimeSeriesSplit"
 
     if task_type == "classification":
         smallest_class = int(y.value_counts(dropna=True).min())

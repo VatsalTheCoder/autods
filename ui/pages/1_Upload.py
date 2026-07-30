@@ -128,6 +128,41 @@ def _render_confirmation(payload: dict) -> None:
             "address this inside cross-validation."
         )
 
+    # Offered only when there is a date to offer, and defaulted on, because a
+    # dataset with an event time in it almost always wants ordered folds. It is
+    # still a choice: a date can be a birthday or a renewal date rather than a
+    # clock, and ordering by one of those would be worse than not ordering.
+    date_columns = [c["name"] for c in columns if c["semantic_type"] == "datetime"]
+    # Numbers are offered too, because plenty of datasets count time rather than
+    # dating it -- an hour index, epoch seconds, a day number. They are not
+    # defaulted to, since most numeric columns are not clocks.
+    counter_columns = [
+        c["name"] for c in columns if c["semantic_type"] == "numeric" and c["name"] != target
+    ]
+    time_options = date_columns + counter_columns
+    time_column = None
+
+    if time_options:
+        use_time = st.checkbox(
+            "Order folds by time",
+            value=bool(date_columns),
+            help=(
+                "Validate on later rows only, so the model is never asked to "
+                "predict the past from the future."
+            ),
+        )
+        if use_time:
+            time_column = st.selectbox(
+                "Time column",
+                options=time_options,
+                help="A date, or a number that counts time such as an hour index.",
+            )
+            st.caption(
+                "Folds run oldest-first. Time-ordered folds cannot be "
+                "class-balanced, so on a rare-event dataset an early fold may "
+                "hold no positive cases — the run says so if that happens."
+            )
+
     st.markdown("**Columns** — tick personal data, and anything to exclude from modelling.")
     editor_rows = [
         {
@@ -161,6 +196,8 @@ def _render_confirmation(payload: dict) -> None:
                 for row in edited.to_dict(orient="records")
             ],
         }
+        if time_column:
+            body["time_column"] = time_column
         try:
             resp = requests.post(f"{API_BASE_URL}/jobs", json=body, timeout=30)
         except requests.exceptions.RequestException as exc:

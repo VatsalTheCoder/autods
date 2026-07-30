@@ -94,6 +94,7 @@ class ConfirmJobRequest(ConfirmedSchema):
             target_column=self.target_column,
             task_type=self.task_type,
             columns=self.columns,
+            time_column=self.time_column,
         )
 
 
