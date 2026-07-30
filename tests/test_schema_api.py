@@ -223,3 +223,96 @@ class TestUnknownFieldsAreRejected:
             },
         )
         assert response.status_code == 200
+
+
+PII_CSV = (
+    b"email,age,city,churn\n"
+    b"a@example.com,34,London,yes\n"
+    b"b@example.com,28,Leeds,no\n"
+    b"c@example.com,45,Bristol,no\n"
+)
+
+
+class TestOmittedColumnsInheritDetectedExclusions:
+    """An omitted ``columns`` must not silently un-exclude the PII.
+
+    Detection sets ``exclude=True`` on PII and ColumnProfile promises that the
+    safe choice is the default. ``confirm_job`` used to take the request
+    literally, so a caller who left the array out got a 200 and a model trained
+    on the flagged column -- seen on a real run, where the pipeline modelled an
+    email and the critic then remarked on the model's reliance on it.
+    """
+
+    @pytest.fixture
+    def pii_job(self, client) -> int:
+        response = client.post("/upload", files={"file": ("pii.csv", PII_CSV, "text/csv")})
+        report = response.json()["schema_report"]
+        # Guard the premise: without a flagged column these tests prove nothing.
+        flagged = {c["name"] for c in report["columns"] if c["is_pii"]}
+        assert "email" in flagged, f"expected email to be flagged as PII, got {flagged}"
+        assert next(c for c in report["columns"] if c["name"] == "email")["exclude"] is True
+        return response.json()["job_id"]
+
+    def _confirmed(self, job_id: int) -> dict:
+        from app.services.artifacts import CONFIRMED_SCHEMA_ARTIFACT, load_json_artifact
+
+        with SessionLocal() as db:
+            return load_json_artifact(db, job_id, CONFIRMED_SCHEMA_ARTIFACT)
+
+    def test_an_omitted_list_keeps_the_pii_excluded(self, client, pii_job):
+        response = client.post(
+            "/jobs",
+            json={"job_id": pii_job, "target_column": "churn", "task_type": "classification"},
+        )
+        assert response.status_code == 200
+
+        confirmed = self._confirmed(pii_job)
+        excluded = {c["name"] for c in confirmed["columns"] if c["exclude"]}
+        assert "email" in excluded
+
+    def test_the_non_pii_columns_are_not_excluded_by_inheriting(self, client, pii_job):
+        """Inheriting must copy detection's decision, not exclude everything."""
+        client.post(
+            "/jobs",
+            json={"job_id": pii_job, "target_column": "churn", "task_type": "classification"},
+        )
+        confirmed = self._confirmed(pii_job)
+        excluded = {c["name"] for c in confirmed["columns"] if c["exclude"]}
+        assert excluded == {"email"}
+
+    def test_an_explicit_choice_still_wins(self, client, pii_job):
+        """Opting back in stays possible -- inheritance is a default, not a lock."""
+        response = client.post(
+            "/jobs",
+            json={
+                "job_id": pii_job,
+                "target_column": "churn",
+                "task_type": "classification",
+                "columns": [{"name": "email", "is_pii": True, "exclude": False}],
+            },
+        )
+        assert response.status_code == 200
+
+        confirmed = self._confirmed(pii_job)
+        assert [c["name"] for c in confirmed["columns"] if c["exclude"]] == []
+
+    def test_a_pii_target_is_never_excluded_by_inheriting(self, client):
+        """Excluding the target would drop the column the run is about.
+
+        Nothing downstream validates against an excluded target, so inheriting
+        one would turn a confirmed run into a nonsensical one.
+        """
+        response = client.post("/upload", files={"file": ("pii.csv", PII_CSV, "text/csv")})
+        job_id = response.json()["job_id"]
+
+        confirm = client.post(
+            "/jobs",
+            json={"job_id": job_id, "target_column": "email", "task_type": "classification"},
+        )
+        assert confirm.status_code == 200
+
+        confirmed = self._confirmed(job_id)
+        email = next(c for c in confirmed["columns"] if c["name"] == "email")
+        assert email["exclude"] is False
+        # Still recorded as PII -- the flag is information, the exclusion is policy.
+        assert email["is_pii"] is True

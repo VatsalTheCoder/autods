@@ -208,12 +208,19 @@ worker` and `docker compose logs worker --tail 50`. A worker that died mid-job
 leaves the job `running` forever; there is no reaper, so re-upload rather than
 waiting.
 
-**PII was modelled anyway.** If you confirm a schema through the API by hand
-rather than through the UI, `columns` is authoritative and an omitted array
-means *no exclusions* — the `exclude: true` that detection set on PII columns is
-discarded, silently. The UI always sends the full list, so this only bites
-API-first clients. Send the columns from the schema report, amended, rather than
-an empty list.
+**Was PII modelled?** It should not be. Detection flags PII and sets
+`exclude: true` on those columns, and confirming without a `columns` array
+inherits that — so the safe choice is the default whether you go through the UI
+or straight at the API. To model a flagged column deliberately, send it with
+`exclude: false`.
+
+The one exception is a PII-flagged column chosen as the *target*: that is never
+inherited as excluded, since it is the column being predicted. It stays marked
+`is_pii: true` — the flag is information, the exclusion is policy.
+
+(Before the fix, an omitted array meant *no exclusions* and silently discarded
+what detection had decided. A live run modelled an `agent_email` column that way
+and the critic remarked on the model's reliance on it.)
 
 ## Shutdown
 
