@@ -23,6 +23,18 @@ TIMEOUT_SECONDS = 5
 
 st.set_page_config(page_title="AutoDS", page_icon="🔬", layout="wide")
 
+# Imported the same way the pages do it, rather than relying on Streamlit
+# putting the script's own directory on sys.path -- which holds when the app
+# is served and not when a test renders this file headlessly.
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+sys.path.append(str(Path(__file__).resolve().parent))
+
+from auth import require_access  # noqa: E402
+
+require_access()
+
 
 def fetch_health() -> tuple[bool, dict | str]:
     """Call the API health endpoint. Returns (reachable, payload_or_error)."""

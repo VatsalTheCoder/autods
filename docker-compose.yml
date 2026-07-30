@@ -210,6 +210,11 @@ services:
       # Service name, not localhost: inside the Docker network "localhost"
       # would mean the ui container itself.
       API_BASE_URL: http://api:8000
+      # The shared secret for the public deployment. Unset locally, so the gate
+      # is invisible during development; set it and every page demands the key.
+      # Only this service is ever tunnelled -- the API stays on the Docker
+      # network, which is why one gate here is the whole story.
+      AUTODS_ACCESS_TOKEN: ${AUTODS_ACCESS_TOKEN:-}
     ports:
       - "8501:8501"
     volumes:
