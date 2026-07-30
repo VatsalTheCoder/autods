@@ -126,7 +126,7 @@ There are two example datasets, one for each task type:
 
 | File | Rows | Target | What it exercises |
 |---|---|---|---|
-| `data/examples/customer_churn.csv` | 500 | `churn` (binary) | Mixed types, missing values, PII-shaped columns, class imbalance |
+| `data/examples/customer_churn.csv` | 500 | `churned` (binary) | Mixed types, missing values, PII-shaped columns, class imbalance |
 | `data/examples/house_prices.csv` | 606 | `sale_price` (continuous) | An identifier to drop, an ordinal grade, a date, 8-level categorical, ~12% missing, exact duplicates |
 
 Both are synthetic. The house-prices generator is committed at
