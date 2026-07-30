@@ -36,10 +36,15 @@ def fetch_health() -> tuple[bool, dict | str]:
 # ---- What it does -----------------------------------------------------------
 
 st.title("AutoDS")
+# Regular weight, not a heading. Set as `#####` this ran as bold serif across two
+# full lines, which read as a second headline competing with the title rather
+# than as the sentence explaining it.
 st.markdown(
-    "##### Upload a CSV. Get back a cleaned dataset, exploratory analysis, a "
+    "<p style='font-size:1.15rem; line-height:1.6; max-width:62ch; margin:0;'>"
+    "Upload a CSV. Get back a cleaned dataset, exploratory analysis, a "
     "cross-validated model, SHAP explanations of its behaviour, a written "
-    "report, and a chat interface over all of it."
+    "report, and a chat interface over all of it.</p>",
+    unsafe_allow_html=True,
 )
 
 st.write("")
@@ -57,7 +62,12 @@ if not healthy:
         icon="⚠️",
     )
 
-st.page_link("pages/1_Upload.py", label="**Upload a dataset**", icon="📤")
+# A real primary button rather than st.page_link. The link renders as small
+# inline text, which is the wrong weight for the one action this page exists to
+# prompt -- and the lone emoji on it was the only one on the page.
+if st.button("Upload a dataset", type="primary", disabled=not healthy):
+    st.switch_page("pages/1_Upload.py")
+
 st.caption(
     "Two example datasets ship with the project: `data/examples/customer_churn.csv` "
     "for classification and `data/examples/house_prices.csv` for regression."

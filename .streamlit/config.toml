@@ -64,3 +64,13 @@ backgroundColor = "#EDF0EB"
 secondaryBackgroundColor = "#F5F6F3"
 borderColor = "#DDE0DA"
 primaryColor = "#1D6F5C"
+
+[theme.dark.sidebar]
+# Required, not optional. [theme.sidebar] applies to *both* themes, so without
+# this block the dark theme keeps the light sidebar above and renders pale text
+# on it -- the navigation was legitimately unreadable in dark mode.
+backgroundColor = "#0B0E0D"
+secondaryBackgroundColor = "#171B19"
+borderColor = "#2A302D"
+textColor = "#EDEFEC"
+primaryColor = "#4FBFA0"
