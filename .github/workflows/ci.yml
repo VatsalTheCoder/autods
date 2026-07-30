@@ -17,6 +17,54 @@ jobs:
     name: Lint, type-check and test
     runs-on: ubuntu-latest
 
+    # Postgres and Redis, so the tests that need them actually run. Until this
+    # existed the suite reported "727 passed, 117 skipped" and every one of those
+    # skips was an end-to-end test -- the pipeline, upload, predict, storage and
+    # schema suites all skip themselves when their dependencies are absent. CI
+    # was green on fourteen merged pull requests without once exercising the
+    # pipeline.
+    #
+    # pgvector/pgvector:pg16, not postgres:16: the chat index stores embeddings
+    # in a `vector` column, so a stock Postgres fails at the migration that
+    # creates it.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: autods
+          POSTGRES_PASSWORD: autods
+          POSTGRES_DB: autods
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U autods"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    # Mirrors what docker-compose.yml gives the api container, with container
+    # hostnames swapped for localhost since these run as ports on the runner.
+    # GOOGLE_API_KEY is deliberately absent: the suite must stay offline, and
+    # conftest strips the variable at import time even when one is set.
+    env:
+      DATABASE_URL: postgresql+psycopg://autods:autods@localhost:5432/autods
+      REDIS_URL: redis://localhost:6379/0
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_BUCKET: autods-artifacts
+      S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
@@ -56,8 +104,56 @@ jobs:
       - name: Check formatting (ruff)
         run: ruff format --check .
 
-      # Tests needing Postgres or MinIO skip themselves when those are absent,
-      # so this runs without services. Section 4 adds service containers here.
+      # Not a service container: MinIO needs `server /data` as its command, and
+      # GitHub's `services:` block has no way to pass one. Compose starts it the
+      # same way, with a separate mc container to make the bucket; here the app's
+      # own ensure_bucket() does that job.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null; then
+              echo "MinIO is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO did not become healthy"; docker logs minio; exit 1
+
+      - name: Create the artifact bucket
+        run: python -c "from app.core.storage import ensure_bucket; ensure_bucket()"
+
+      # The health check reports database: true on an empty database -- it checks
+      # connectivity, not schema -- so without this the failure surfaces as a
+      # missing table halfway through a test rather than here.
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      # The guard that makes the rest of this trustworthy. The end-to-end tests
+      # skip *themselves* on exactly these two predicates, so if the wiring above
+      # ever breaks they go quiet and CI stays green -- which is the situation
+      # this whole block exists to end. Fail loudly here instead.
+      - name: Fail if the dependencies the end-to-end tests gate on are missing
+        run: |
+          python - <<'PY'
+          from app.core.db import database_healthy
+          from app.core.storage import storage_healthy
+          problems = []
+          if not database_healthy():
+              problems.append("Postgres unreachable")
+          if not storage_healthy():
+              problems.append("object storage unreachable")
+          if problems:
+              raise SystemExit(
+                  "; ".join(problems)
+                  + " -- the end-to-end tests would skip themselves and CI would "
+                  + "pass without exercising the pipeline."
+              )
+          print("Postgres and object storage both reachable")
+          PY
+
       - name: Run tests
         run: pytest tests/ --cov=app --cov-report=term-missing
 
