@@ -66,6 +66,7 @@ upload → schema detection → [human confirms] → planner → cleaning → ED
 |---|---|
 | [AutoDS_v4_Final_Portfolio_Spec.md](AutoDS_v4_Final_Portfolio_Spec.md) | Full architecture, agent designs, and design decisions |
 | [BUILD_PLAN.md](BUILD_PLAN.md) | 13 sections across ~24 weeks, with exit criteria for each |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Bringing the stack up from cold, measured demo timings, troubleshooting |
 
 ---
 
