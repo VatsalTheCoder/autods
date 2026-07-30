@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 SemanticType = Literal["numeric", "categorical", "boolean", "datetime", "text"]
 TaskType = Literal["classification", "regression"]
@@ -99,6 +99,13 @@ class LLMSchemaInference(BaseModel):
 
 
 class ConfirmedColumn(BaseModel):
+    # Unknown keys are rejected rather than ignored. ``exclude`` decides whether
+    # a column reaches the model, so a caller who guesses the name -- ``include:
+    # false`` is the obvious guess, and inverted -- would otherwise get a 200 and
+    # silently train on the PII they meant to withhold. A 422 naming the field is
+    # the only safe failure here.
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     is_pii: bool = False
     exclude: bool = False
@@ -106,6 +113,8 @@ class ConfirmedColumn(BaseModel):
 
 class ConfirmedSchema(BaseModel):
     """The user's approved schema, posted to launch the (future) pipeline."""
+
+    model_config = ConfigDict(extra="forbid")
 
     target_column: str
     task_type: TaskType
