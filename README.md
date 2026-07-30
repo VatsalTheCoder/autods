@@ -83,10 +83,14 @@ deployment needs no code change — which is the property the spec was protectin
 
 | Document | Contents |
 |---|---|
-| [AutoDS_v4_Final_Portfolio_Spec.md](AutoDS_v4_Final_Portfolio_Spec.md) | Full architecture, agent designs, and design decisions |
-| [BUILD_PLAN.md](BUILD_PLAN.md) | 13 sections across ~24 weeks, with exit criteria for each |
+| [docs/](docs/README.md) | **Start here** — architecture, data model, API reference, runbook |
+| [docs/architecture.md](docs/architecture.md) | Containers, request path, the pipeline graph, which agents call the model, where leakage is prevented |
+| [docs/data-model.md](docs/data-model.md) | The seven tables and what each is for |
+| [docs/api.md](docs/api.md) | All 25 endpoints, plus what the OpenAPI schema cannot tell you |
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Bringing the stack up from cold, measured demo timings, troubleshooting |
 | [docs/related-work.md](docs/related-work.md) | Positioning against the similarly-named CHI '21 system by Wang et al. |
+| [AutoDS_v4_Final_Portfolio_Spec.md](AutoDS_v4_Final_Portfolio_Spec.md) | The original specification — see the two documented departures above |
+| [BUILD_PLAN.md](BUILD_PLAN.md) | 13 sections across ~24 weeks, with exit criteria for each |
 
 ---
 
