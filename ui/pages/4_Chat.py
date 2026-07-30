@@ -22,7 +22,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Chat · AutoDS", page_icon="💬", layout="wide")
 
-st.title("💬 Ask about this run")
+st.title("Ask about this run")
 
 # How each route is labelled. The wording states what the answer *is*, rather
 # than naming the tool -- "computed from the data" tells a reader something,

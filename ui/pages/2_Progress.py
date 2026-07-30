@@ -22,7 +22,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Progress · AutoDS", page_icon="📊", layout="wide")
 
-st.title("📊 Pipeline progress")
+st.title("Pipeline progress")
 
 # Terminal states stop the auto-refresh loop; everything else is still moving.
 TERMINAL = {"completed", "failed"}

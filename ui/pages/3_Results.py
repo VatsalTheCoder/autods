@@ -21,7 +21,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Results · AutoDS", page_icon="📈", layout="wide")
 
-st.title("📈 Results")
+st.title("Results")
 
 # Metrics worth showing as headline tiles, in the order they read best.
 HEADLINE = {

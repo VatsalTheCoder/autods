@@ -191,6 +191,27 @@ After a dependency or `docker-compose.yml` change, `docker compose up -d` —
 `restart` reuses the old container definition and will not pick up a new mount
 or a new package.
 
+**The app lost its theme after switching branches.** `.streamlit/` is bind-mounted
+into the ui container, and `git checkout` deletes and recreates that directory
+whenever you move between a branch that has it and one that does not. The mount
+then points at an inode that no longer exists, so the container sees an *empty*
+`.streamlit/` and silently falls back to stock Streamlit — no error, no warning,
+just default grey where the theme should be.
+
+```bash
+docker compose up -d --force-recreate ui
+```
+
+`restart` is not enough; the mount has to be re-resolved. Confirm with:
+
+```bash
+docker compose exec ui python -c "
+from streamlit import config; config.get_config_options(force_reparse=True)
+print(config.get_option('theme.primaryColor'))"
+```
+
+`#1D6F5C` means the theme is live; `None` means the mount is stale.
+
 **The logs are unreadable.** `DEBUG=true` with `ENVIRONMENT=local` turns on
 SQLAlchemy echo ([`app/core/db.py:27`](../app/core/db.py#L27)), which logs every
 statement including full embedding vectors from the chat index — a single run
