@@ -18,7 +18,9 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-PAGE = str(Path(__file__).resolve().parents[1] / "ui" / "app.py")
+# Named Home.py, not app.py: Streamlit labels the sidebar entry from the
+# file stem, so the entrypoint's name is user-visible navigation text.
+PAGE = str(Path(__file__).resolve().parents[1] / "ui" / "Home.py")
 BUILD_PLAN = Path(__file__).resolve().parents[1] / "BUILD_PLAN.md"
 
 

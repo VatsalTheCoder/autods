@@ -24,7 +24,7 @@ UPLOAD_TIMEOUT_SECONDS = 120
 
 st.set_page_config(page_title="Upload · AutoDS", page_icon="📤", layout="wide")
 
-st.title("📤 Upload a dataset")
+st.title("Upload a dataset")
 st.caption("Upload a CSV to start a new analysis job, then confirm its schema.")
 
 

@@ -1,0 +1,76 @@
+# Theme for the Streamlit app.
+#
+# The palette is not new: it is the one the published progress report already
+# uses, so someone moving between the report and the running app sees one
+# project rather than two. Green carries the accent, brass is held back for
+# "attention, not failure", and the neutrals are warmed very slightly toward the
+# green rather than being pure grey -- a flat mid-grey is the colour you get when
+# nobody chose one.
+#
+# Both themes are defined. Streamlit picks by the viewer's OS preference, and the
+# dark values are chosen rather than inverted: the accent lifts to #4FBFA0
+# because #1D6F5C does not carry enough contrast on a dark ground.
+#
+# Fonts are the three built-in families. Streamlit accepts only "serif",
+# "sans-serif", "monospace", a [[theme.fontFaces]] entry or a URL -- not an
+# arbitrary CSS stack -- and a webfont URL would put a network dependency in
+# front of a demo that has to work offline. Serif headings against a sans body
+# still reproduces the report's structure, which is what does the work.
+
+[server]
+# Kept in step with MAX_UPLOAD_MB. Streamlit enforces its own limit before the
+# API ever sees the file, so a mismatch means the UI rejects an upload the API
+# would have accepted, with a different and less helpful message.
+maxUploadSize = 200
+
+[theme]
+base = "light"
+
+primaryColor = "#1D6F5C"
+backgroundColor = "#F5F6F3"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#15181A"
+borderColor = "#DDE0DA"
+linkColor = "#1D6F5C"
+
+headingFont = "serif"
+font = "sans-serif"
+codeFont = "monospace"
+
+baseRadius = "small"
+buttonRadius = "small"
+showWidgetBorder = true
+
+# Charts inherit the identity too, so a plot does not arrive looking like it came
+# from a different application. Ordered so the first two are distinguishable to
+# the most common forms of colour blindness.
+chartCategoricalColors = ["#1D6F5C", "#8C6714", "#3E6E8E", "#7C8481", "#A15A3A", "#4B5F55"]
+chartSequentialColors = [
+  "#E3EDE8", "#C6DCD2", "#A8CABB", "#89B8A5", "#6AA68F",
+  "#4B9479", "#2F8264", "#1D6F5C", "#155646", "#0D3D31",
+]
+
+[theme.dark]
+backgroundColor = "#101312"
+secondaryBackgroundColor = "#171B19"
+textColor = "#EDEFEC"
+borderColor = "#2A302D"
+linkColor = "#4FBFA0"
+
+[theme.sidebar]
+# One step darker than the page so the navigation reads as chrome rather than
+# content -- the pages themselves are where the eye should land.
+backgroundColor = "#EDF0EB"
+secondaryBackgroundColor = "#F5F6F3"
+borderColor = "#DDE0DA"
+primaryColor = "#1D6F5C"
+
+[theme.dark.sidebar]
+# Required, not optional. [theme.sidebar] applies to *both* themes, so without
+# this block the dark theme keeps the light sidebar above and renders pale text
+# on it -- the navigation was legitimately unreadable in dark mode.
+backgroundColor = "#0B0E0D"
+secondaryBackgroundColor = "#171B19"
+borderColor = "#2A302D"
+textColor = "#EDEFEC"
+primaryColor = "#4FBFA0"
