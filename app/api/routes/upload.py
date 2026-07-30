@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.schema_detection import AGENT_NAME as SCHEMA_AGENT
 from app.agents.schema_detection import detect_schema
-from app.agents.schema_models import SchemaReport
+from app.agents.schema_models import ConfirmedColumn, SchemaReport
 from app.api.schemas import (
     ArtifactLink,
     ArtifactSummary,
@@ -232,15 +232,41 @@ def confirm_job(request: ConfirmJobRequest, db: Session = Depends(get_db)) -> Jo
         )
 
     stored = load_json_artifact(db, job.id, SCHEMA_ARTIFACT)
-    if stored is not None:
-        valid_columns = set(SchemaReport.model_validate(stored).column_names())
-        if request.target_column not in valid_columns:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Target {request.target_column!r} is not a column in this dataset.",
-            )
+    detected = SchemaReport.model_validate(stored) if stored is not None else None
+    if detected is not None and request.target_column not in set(detected.column_names()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Target {request.target_column!r} is not a column in this dataset.",
+        )
 
     confirmed = request.as_confirmed_schema()
+
+    if not confirmed.columns and detected is not None:
+        # An omitted ``columns`` means "no opinion", not "no exclusions".
+        #
+        # Detection sets ``exclude=True`` on every PII column, and ColumnProfile
+        # says why: the safe choice is the default and the user opts back in.
+        # Taking the request literally here quietly broke that promise -- a
+        # caller who left the array out got a 200 and a model trained on the PII
+        # that had already been flagged. Observed on a real run, where the
+        # pipeline modelled an email column and the critic then remarked on the
+        # model's reliance on it.
+        #
+        # The UI always sends the full list, so this path is for API-first
+        # callers. Inheriting is the conservative reading: to model a PII column
+        # you now send it explicitly with ``exclude: false``.
+        confirmed.columns = [
+            ConfirmedColumn(
+                name=column.name,
+                is_pii=column.is_pii,
+                # Never inherit an exclusion onto the target. A PII-flagged
+                # target -- an ``email`` column being predicted -- would
+                # otherwise exclude the very column the run is about, and
+                # nothing downstream validates against that.
+                exclude=column.exclude and column.name != confirmed.target_column,
+            )
+            for column in detected.columns
+        ]
     job.target_column = confirmed.target_column
     job.task_type = confirmed.task_type
     # Straight to QUEUED: confirming *is* launching the pipeline (spec 12.2).
