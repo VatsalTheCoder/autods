@@ -42,6 +42,10 @@ RUN pip install --upgrade pip && pip install ".[ui,dev]"
 
 COPY app/ ./app/
 COPY ui/ ./ui/
+# Streamlit reads .streamlit/config.toml relative to the working directory, so
+# without this the built image falls back to the stock theme and a deployed UI
+# looks nothing like the one developed against.
+COPY .streamlit/ ./.streamlit/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 

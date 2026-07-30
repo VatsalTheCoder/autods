@@ -214,6 +214,9 @@ services:
       - "8501:8501"
     volumes:
       - ./ui:/code/ui
+      # Theme config, mounted so a palette change is a restart rather than an
+      # image rebuild. Streamlit reads it relative to the working directory.
+      - ./.streamlit:/code/.streamlit
     depends_on:
       api:
         condition: service_healthy
