@@ -77,6 +77,16 @@ with col_right:
 st.divider()
 
 st.subheader("Build progress")
+# Hand-maintained, and it went stale once already: this table stopped at
+# Section 7 while Sections 7-10 were merging, so the landing page told visitors
+# feature engineering had not been started for four sections. Every section is
+# listed now, so falling behind shows up as a wrong status rather than a missing
+# row.
+#
+# Three places state build status and they have to move together:
+#   - this table
+#   - the "Build progress" list in README.md
+#   - the published progress report (see docs/RUNBOOK.md for the URL)
 st.markdown(
     """
 | Section | Status |
@@ -88,7 +98,12 @@ st.markdown(
 | 4 · Background worker | ✅ done |
 | 5 · Vertical slice *(milestone M1)* | ✅ done |
 | 6 · EDA & clustering *(milestone M2)* | ✅ done |
-| 7 · Feature engineering | ⬜ not started |
+| 7 · Feature engineering *(milestone M3)* | ✅ done |
+| 8 · Final training, SHAP & prediction *(milestone M4)* | ✅ done |
+| 9 · Critic & report *(milestone M5)* | ✅ done |
+| 10 · RAG chat *(milestone M6)* | ✅ done |
+| 11 · AWS deployment *(milestone M7)* | 🟡 in progress — runbook written, hosting pending |
+| 12 · Testing & docs | 🟡 in progress |
 
 See `BUILD_PLAN.md` for the full plan.
 """
