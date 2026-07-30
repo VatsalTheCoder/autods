@@ -24,6 +24,34 @@ Three independent proofs, deliberately overlapping:
 
 Everything here runs on synthetic frames with no database and no worker, so these
 run in the ordinary test suite on every commit, which is the point.
+
+**These assertions were checked by breaking the thing they guard** (2026-07-30).
+A test defending a silent failure mode is worth exactly as much as its ability to
+go red, and a passing test proves nothing about that on its own. Three leaks were
+introduced into ``cross_validate_model`` in turn and reverted:
+
+===============================  ==============  ===================================
+Mutation                         Tests failing   Caught by
+===============================  ==============  ===================================
+``template.fit(X, y)`` before     5 of 15        proofs 1, 2 and 3
+the fold loop -- the classic
+leak the project exists to
+rule out
+
+``pipeline = template`` instead   2 of 15        proofs 2 and 3 **only**
+of ``clone(template)``
+
+``pipeline.fit(X, y)`` inside     3 of 15        proof 1 only
+the loop rather than
+``fit(X_train, y_train)``
+===============================  ==============  ===================================
+
+The middle row is the interesting one, and the reason the overlap in these proofs
+is deliberate rather than wasteful. Dropping the ``clone`` is **not** caught by
+the row-counting spy at all: each fold still refits on 80 training rows, so the
+log looks perfect. It is caught only because the caller's template comes back
+fitted and because the encoder's per-fold refit is checked separately. Any one of
+these three proofs alone would leave a real leak undetected.
 """
 
 from __future__ import annotations
