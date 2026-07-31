@@ -7,7 +7,12 @@
     "",
     "'note' is the point of each entry: it says which dataset *shape* the file",
     "is standing in for, so a sweep's table reads as coverage rather than as a",
-    "list of filenames. The shapes still uncovered are listed at the bottom."
+    "list of filenames. The shapes still uncovered are listed at the bottom.",
+    "",
+    "'in_repo': false marks a dataset that lives only on the machine running",
+    "the sweep. Only data/examples/*.csv is committed -- the bigger and messier",
+    "shapes are exactly the ones too large to version -- so those entries are",
+    "exempt from the test that checks every named file actually exists."
   ],
 
   "datasets": [
@@ -28,6 +33,8 @@
       "target": "is_fraud",
       "task_type": "classification",
       "note": "imbalanced + 50k rows: the SMOTE-inside-the-fold path, and the first size at which EDA cost is visible",
+      "in_repo": false,
+      "_in_repo_note": "Too large to commit; regenerate with data/_make_fraud.py.",
       "time_column": "timestamp",
       "_time_column_note": "Sent only on a build with time-ordered CV (PR #26). Until that merges the API rejects the field and the sweep records a confirm failure -- which is the honest outcome, not a random split reported as ordered."
     }

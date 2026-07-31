@@ -87,15 +87,26 @@ class TestChoosingWhatToRun:
         An entry that matches nothing is silently ignored by ``discover_cases``:
         the dataset still runs, just with detection's guess instead of the
         target you carefully chose. That is the failure this catches.
+
+        Entries flagged ``in_repo: false`` are exempt, and have to be. Only
+        ``data/examples/*.csv`` is committed -- the larger and messier shapes
+        are precisely the ones too big to version -- so requiring every named
+        file to be present would either pass only on the machine that generated
+        them, or force the manifest to stop naming them at all.
         """
         manifest_path = SCRIPT.parent / "sweep_manifest.json"
         entries = sweep.load_manifest(manifest_path)
 
         assert entries, "the committed manifest lists no datasets"
         data_dir = SCRIPT.parent.parent / "data"
-        for name in entries:
-            matches = list(data_dir.rglob(name))
-            assert matches, f"manifest names {name}, which is not under data/"
+        checked = 0
+        for name, entry in entries.items():
+            if entry.get("in_repo") is False:
+                continue
+            assert list(data_dir.rglob(name)), f"manifest names {name}, not found under data/"
+            checked += 1
+
+        assert checked, "every entry claims to be local, so nothing was checked"
 
     def test_a_manifest_may_be_a_bare_list(self, tmp_path):
         path = tmp_path / "m.json"
