@@ -45,6 +45,7 @@ from app.core.llm.base import (
     ModelTier,
     RateLimitError,
     StructuredOutputError,
+    TransientLLMError,
     UsageCallback,
     assistant,
     user,
@@ -202,9 +203,22 @@ def structured_complete_tiered[T: BaseModel](
     wants, so exhausting one model's minute-quota should not silently downgrade
     the whole run when another model is sitting idle.
 
-    Only ``RateLimitError`` steps down. A malformed response or a provider
-    outage is not something a different model is likely to fix, and retrying
-    those across tiers would double the latency of a failure.
+    Any ``TransientLLMError`` steps down, which includes ``RateLimitError`` and
+    the 503/504 case. A malformed response still does not: that is a model
+    misunderstanding the schema, and ``structured_complete`` has already re-asked
+    it, so carrying the same confusion to another model would double the latency
+    of a failure for very little.
+
+    **This used to catch ``RateLimitError`` alone**, on the reasoning that a
+    provider outage is not something a different model can fix. That was sound
+    while SMALL and LARGE were both Gemini: when Google returns 503 the capacity
+    that is missing belongs to neither tier in particular. A live sweep on
+    2026-07-31 showed what it cost -- eight 503s and two 504s against two rate
+    limits, so the step-down sat out ten of the twelve failures and the critic and
+    report writer fell to their deterministic templates on three runs in four.
+    With ``ModelTier.FALLBACK`` naming a Gemma model, a Gemini outage genuinely
+    does have somewhere else to go, and the narrow catch is now the thing in the
+    way.
     """
     if not tiers:
         raise ValueError("at least one tier is required")
@@ -221,9 +235,13 @@ def structured_complete_tiered[T: BaseModel](
                 max_retries=max_retries,
                 on_usage=on_usage,
             )
-        except RateLimitError as exc:
+        except TransientLLMError as exc:
             last_error = exc
-            logger.info("Rate limited on the %s tier; stepping down", tier.name.lower())
+            # Named separately because they read differently in a log: being
+            # throttled is this run's own doing and will pass, while an outage is
+            # the provider's and might not.
+            reason = "Rate limited" if isinstance(exc, RateLimitError) else "Provider unavailable"
+            logger.info("%s on the %s tier; stepping down", reason, tier.name.lower())
 
     assert last_error is not None  # noqa: S101 - the loop ran at least once
     raise last_error

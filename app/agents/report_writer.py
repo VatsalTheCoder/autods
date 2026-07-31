@@ -87,7 +87,7 @@ def write_narrative(
             # when rate limited, because the alternative is the Section 5 report
             # with no prose at all -- and these two agents are why the large
             # model's quota runs out first.
-            tiers=(ModelTier.LARGE, ModelTier.SMALL),
+            tiers=(ModelTier.LARGE, ModelTier.SMALL, ModelTier.FALLBACK),
             on_usage=on_usage,
         )
     except LLMError as exc:

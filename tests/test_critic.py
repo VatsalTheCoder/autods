@@ -19,7 +19,7 @@ import json
 
 from app.agents.critic import measured_findings, review_run
 from app.agents.summaries import summarise_run
-from app.core.llm.base import RateLimitError, TransientLLMError
+from app.core.llm.base import ModelTier, RateLimitError, TransientLLMError
 from app.core.llm.fake import FakeLLM
 from app.ml.contracts import (
     ClusteringReport,
@@ -32,6 +32,13 @@ from app.ml.contracts import (
     MetricSummary,
     StrategyOverride,
 )
+
+# One scripted failure per tier. Derived from the enum rather than written as a
+# literal so that adding a tier does not quietly turn these degradation tests
+# into success tests: with too few failures scripted, FakeLLM falls through to
+# its default reply and the agent succeeds, which is what happened when
+# ModelTier.FALLBACK was added.
+TIERS = len(ModelTier)
 
 
 def leaderboard_of(*scores: tuple[str, float, float], errors: list[str] | None = None):
@@ -270,7 +277,7 @@ class TestDegradingWithoutAModel:
         report = review_run(
             summary_of(leaderboard=board),
             leaderboard=board,
-            client=FakeLLM([TransientLLMError("503 after retries")]),
+            client=FakeLLM([TransientLLMError("503 after retries")] * TIERS),
         )
         assert report.source == "default"
         assert report.findings
@@ -284,13 +291,13 @@ class TestDegradingWithoutAModel:
 
     def test_a_rate_limit_on_every_tier_still_degrades(self):
         board = leaderboard_of(("A", 0.81, 0.04), ("B", 0.805, 0.03))
-        client = FakeLLM([RateLimitError("429"), RateLimitError("429")])
+        client = FakeLLM([RateLimitError("429")] * TIERS)
         report = review_run(summary_of(leaderboard=board), leaderboard=board, client=client)
         assert report.source == "default"
         assert report.findings
 
     def test_a_provider_failure_says_the_written_review_is_missing(self):
-        report = review_run(summary_of(), client=FakeLLM([TransientLLMError("503")]))
+        report = review_run(summary_of(), client=FakeLLM([TransientLLMError("503")] * TIERS))
         assert any("written review was not produced" in note for note in report.omissions)
 
     def test_persistently_malformed_output_falls_back(self):

@@ -134,7 +134,7 @@ def review_run(
             # Stepping down to the small one when rate limited, because the
             # alternative is a review that is only threshold checks -- and on the
             # free tier the large model's quota is the first to run out.
-            tiers=(ModelTier.LARGE, ModelTier.SMALL),
+            tiers=(ModelTier.LARGE, ModelTier.SMALL, ModelTier.FALLBACK),
             on_usage=on_usage,
         )
     except LLMError as exc:

@@ -112,6 +112,7 @@ class GeminiLLM(LLMClient):
         self._models = {
             ModelTier.SMALL: settings.llm_model_small,
             ModelTier.LARGE: settings.llm_model_large,
+            ModelTier.FALLBACK: settings.llm_model_fallback,
         }
         # One limiter per tier: the two models meter on separate buckets
         # (spec section 6.3), so sharing one would throttle needlessly.
@@ -125,6 +126,12 @@ class GeminiLLM(LLMClient):
             ModelTier.LARGE: RateLimiter(
                 requests_per_minute=settings.llm_large_rpm,
                 input_tokens_per_minute=settings.llm_large_input_tpm,
+                time_fn=time_fn,
+                sleep_fn=sleep_fn,
+            ),
+            ModelTier.FALLBACK: RateLimiter(
+                requests_per_minute=settings.llm_fallback_rpm,
+                input_tokens_per_minute=settings.llm_fallback_input_tpm,
                 time_fn=time_fn,
                 sleep_fn=sleep_fn,
             ),

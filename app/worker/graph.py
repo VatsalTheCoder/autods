@@ -329,9 +329,32 @@ def modeling_node(state: PipelineState) -> dict:
 
 
 def evaluation_node(state: PipelineState) -> dict:
-    """Aggregate the folds into ``evaluation_report.json`` (spec 7.8)."""
+    """Aggregate the folds into ``evaluation_report.json`` (spec 7.8).
+
+    The winner's own warnings are per-fold ones -- a metric that could not be
+    computed on some fold. The decisions taken *before* any candidate ran, and
+    which apply to all of them, live on the leaderboard instead: how many folds
+    there are and why, whether the rows were ordered by time, whether SMOTE was
+    skipped. Both belong in the evaluation report, because that is the artifact
+    the report's Caveats section reads.
+
+    Without this merge the fold count is the visible case: a dataset whose rarest
+    class forces five folds down to four gets a report saying it "was split into
+    4 folds", with the sentence explaining why sitting unread in the leaderboard
+    artifact. ``modeling.py`` states the opposite intent in as many words --
+    "every reduction is recorded as a warning so the report never implies five
+    folds it did not run" -- and this is the wiring that keeps that true.
+    """
     job_id = state["job_id"]
     cv = state["cv_result"]
+    leaderboard = state.get("leaderboard")
+    # Run-level first: they set the context the per-fold notes are read against.
+    # dict.fromkeys dedupes while keeping order, and it has to dedupe -- the
+    # leaderboard already absorbed each candidate's fold warnings as it scored
+    # them, so the winner's are a subset of its list.
+    warnings = list(
+        dict.fromkeys(list(leaderboard.warnings if leaderboard is not None else []) + cv.warnings)
+    )
     report = build_evaluation_report(
         cv.folds,
         task_type=state["task_type"],
@@ -341,7 +364,7 @@ def evaluation_node(state: PipelineState) -> dict:
         cv_strategy=cv.cv_strategy,
         n_rows=cv.n_rows,
         n_features=cv.n_features,
-        warnings=cv.warnings,
+        warnings=warnings,
     )
     with SessionLocal() as db:
         register_json_artifact(db, job_id, EVALUATION_ARTIFACT, report)

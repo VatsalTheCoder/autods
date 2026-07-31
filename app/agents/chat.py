@@ -278,7 +278,7 @@ def _answer_with_passages(
             client,
             messages,
             GroundedAnswer,
-            tiers=(ModelTier.LARGE, ModelTier.SMALL),
+            tiers=(ModelTier.LARGE, ModelTier.SMALL, ModelTier.FALLBACK),
             on_usage=on_usage,
         )
     except RateLimitError as exc:

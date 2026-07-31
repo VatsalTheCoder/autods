@@ -19,10 +19,17 @@ import pandas as pd
 import pytest
 
 from app.agents.chat import NO_MODEL_ANSWER, answer_question
-from app.core.llm.base import RateLimitError, TransientLLMError
+from app.core.llm.base import ModelTier, RateLimitError, TransientLLMError
 from app.core.llm.fake import FakeLLM
 from app.models.chat_message import ChatRoute
 from app.services.retrieval import Retrieved
+
+# One scripted failure per tier. Derived from the enum rather than written as a
+# literal so that adding a tier does not quietly turn these degradation tests
+# into success tests: with too few failures scripted, FakeLLM falls through to
+# its default reply and the agent succeeds, which is what happened when
+# ModelTier.FALLBACK was added.
+TIERS = len(ModelTier)
 
 
 @pytest.fixture
@@ -150,7 +157,10 @@ class TestWhenTheModelIsUnavailable:
     def test_a_routing_failure_does_not_raise(self, frame, passages):
         """A chat that raises on a bad question loses the conversation."""
         result = answer_question(
-            "Anything", passages=passages, frame=frame, client=FakeLLM([TransientLLMError("503")])
+            "Anything",
+            passages=passages,
+            frame=frame,
+            client=FakeLLM([TransientLLMError("503")] * TIERS),
         )
         assert result.route == ChatRoute.REFUSED
         assert "could not be routed" in result.answer
@@ -165,14 +175,16 @@ class TestWhenTheModelIsUnavailable:
         assert result.answer == "A smaller answer."
 
     def test_rate_limited_on_every_tier_says_so(self, frame, passages):
-        client = FakeLLM([route_json("rag"), RateLimitError("429"), RateLimitError("429")])
+        client = FakeLLM([route_json("rag"), *([RateLimitError("429")] * TIERS)])
         result = answer_question("Why?", passages=passages, frame=frame, client=client)
         assert "rate limited" in result.answer
         assert result.grounding.startswith("rate-limited:")
 
     def test_a_calculation_survives_the_phrasing_model_failing(self, frame, passages):
         """The number is the answer; the sentence around it is a convenience."""
-        client = FakeLLM([route_json("pandas", "df['age'].mean()"), TransientLLMError("503")])
+        client = FakeLLM(
+            [route_json("pandas", "df['age'].mean()"), *([TransientLLMError("503")] * TIERS)]
+        )
         result = answer_question("average age", passages=passages, frame=frame, client=client)
         assert result.route == ChatRoute.PANDAS
         assert "35" in result.answer

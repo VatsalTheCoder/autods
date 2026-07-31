@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     # times in 3; gemma-4-26b-a4b-it took 42s and failed 4 times in 5 against the
     # 60s timeout, silently degrading every agent to its deterministic fallback.
     #
+    # Re-measured 2026-07-31, and the second half of that no longer holds. On a
+    # critic-sized prompt (~3k input tokens, JSON out) gemma-4-31b-it answered in
+    # 13.8-16.3s and returned schema-valid JSON 4 times out of 4. The variant
+    # that misbehaves is the *26B MoE*, which now answers in ~17s but returns an
+    # empty body on two calls in three -- so the 2026-07-27 finding was a
+    # property of that model, not of Gemma. 31B was not tried then; it is what
+    # LLM_MODEL_FALLBACK points at now. It remains too slow for SMALL, which
+    # sits on the request path and needs seconds, not tens of them.
+    #
     # Anything here is one env var away, so a self-hosted or Gemma deployment
     # needs no code change -- which is the property spec 6.3 was protecting.
     llm_model_small: str = "gemini-3.1-flash-lite"
@@ -90,6 +99,11 @@ class Settings(BaseSettings):
     # reachable now so it is not a surprise then. gemini-3.1-pro-preview was the
     # obvious alternative and is rate-limited to unusable on the free tier.
     llm_model_large: str = "gemini-3.5-flash"
+    # A different model *family* on the same key, tried only when Gemini is
+    # unavailable rather than merely busy. See ModelTier.FALLBACK for why a third
+    # Gemini model would not have helped. Its published free-tier limits differ
+    # from the Gemini ones, hence its own limiter below.
+    llm_model_fallback: str = "gemma-4-31b-it"
 
     # Free-tier rate limits, per tier, per the spec's stated figures. These are
     # ALSO flagged unverified there, and the input-TPM cap is the binding
@@ -100,6 +114,12 @@ class Settings(BaseSettings):
     llm_small_input_tpm: int = 15_000
     llm_large_rpm: int = 30
     llm_large_input_tpm: int = 15_000
+    # These two are the only ones here that have been read off a live quota
+    # dashboard rather than taken from the spec: Gemma 4 31B on AI Studio,
+    # 2026-07-31. Its daily cap (14,400) is far out of reach at six calls a run
+    # and is not metered here for that reason.
+    llm_fallback_rpm: int = 30
+    llm_fallback_input_tpm: int = 15_000
 
     # How many times structured_complete re-asks the model after malformed or
     # schema-invalid output before failing the job (spec section 10).
