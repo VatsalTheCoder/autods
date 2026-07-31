@@ -204,6 +204,75 @@ class TestOneBadDatasetDoesNotEndTheSweep:
         assert record.job_id == 7
 
 
+class TestTheJobRunsOnce:
+    """The defect that made every sweep before it ambiguous.
+
+    Confirming a job enqueues the Celery task; the worker container starts it
+    immediately; the sweep then runs the same job id in-process. Two pipelines,
+    one set of ``agent_runs`` rows, and whichever loses the race dies with a
+    ``StaleDataError`` that reads like a bad dataset. It also doubles the token
+    spend and leaves every artifact ambiguous about which run wrote it.
+    """
+
+    def test_confirming_does_not_queue_the_run_the_sweep_will_do_itself(
+        self, tmp_path, monkeypatch
+    ):
+        from app.api.routes import upload as upload_routes
+
+        queued: list[int] = []
+        monkeypatch.setattr(upload_routes, "enqueue_pipeline", lambda job_id: queued.append(job_id))
+
+        path = tmp_path / "d.csv"
+        path.write_text("a,y\n1,0\n")
+        ran: list[int] = []
+        monkeypatch.setattr(sweep, "run_pipeline", lambda job_id: ran.append(job_id))
+
+        class Client:
+            def post(self, url, **kwargs):
+                # Faithful to the real route: confirming enqueues.
+                if url == "/jobs":
+                    upload_routes.enqueue_pipeline(11)
+
+                class Response:
+                    status_code = 201 if url == "/upload" else 200
+
+                    @staticmethod
+                    def json():
+                        return {
+                            "job_id": 11,
+                            "preview": {"n_rows": 1, "n_columns": 2},
+                            "schema_report": {
+                                "suggested_target": "y",
+                                "task_type": "classification",
+                            },
+                        }
+
+                return Response()
+
+        sweep.run_case(sweep.SweepCase(path=path), Client())
+
+        assert ran == [11], "the sweep did not run the pipeline"
+        assert queued == [], "the job was queued as well as run: it executes twice"
+
+    def test_the_suppression_is_undone_afterwards(self):
+        """Leaving it patched would silently stop the real app queueing jobs."""
+        from app.api.routes import upload as upload_routes
+
+        before = upload_routes.enqueue_pipeline
+        with sweep._only_one_pipeline_per_job():
+            assert upload_routes.enqueue_pipeline is not before
+        assert upload_routes.enqueue_pipeline is before
+
+    def test_it_is_restored_even_when_the_run_explodes(self):
+        from app.api.routes import upload as upload_routes
+
+        before = upload_routes.enqueue_pipeline
+        with pytest.raises(RuntimeError):
+            with sweep._only_one_pipeline_per_job():
+                raise RuntimeError("boom")
+        assert upload_routes.enqueue_pipeline is before
+
+
 class TestTheTable:
     def test_every_dataset_gets_a_row_including_the_broken_ones(self):
         records = [

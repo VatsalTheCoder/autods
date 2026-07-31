@@ -193,7 +193,7 @@ passing had nothing to trip over.
 
 ```bash
 make sweep                          # everything in data/examples
-make sweep paths=data/wide.csv      # or specific files and directories
+make sweep paths=data/mine.csv      # or specific files and directories
 ```
 
 It drives each CSV through upload → confirm → pipeline and writes one row per dataset to
@@ -203,13 +203,14 @@ one worth watching — a run can complete, render a report, and be entirely the 
 nothing else in the system says so.
 
 ```
-| Dataset             | Rows × Cols | Task           | Status    | Time | Best model         | Score | Skipped                       | Fell back |
-| customer_churn.csv  | 500 × 10    | classification | completed | 50s  | LogisticRegression | 0.782 | sampling, feature_selection   | none      |
-| house_prices.csv    | 606 × 13    | regression     | completed | 48s  | LinearRegression   | 0.908 | sampling, feature_selection   | none      |
+| Dataset             | Rows × Cols | Task           | Status    | Time | Best model         | Score | Skipped                     | Fell back |
+| customer_churn.csv  | 500 × 10    | classification | completed | 72s  | LogisticRegression | 0.782 | sampling, feature_selection | none      |
+| house_prices.csv    | 606 × 13    | regression     | completed | 104s | LinearRegression   | 0.908 | sampling, feature_selection | none      |
 ```
 
 A sweep reports; it does not pass or fail, and it is deliberately not part of `make check` — it
-calls a live model and takes minutes per dataset. Per-dataset targets and exclusions go in
+calls a live model and takes minutes per dataset. Wall times move by tens of seconds between runs
+on free-tier latency alone; the scores do not. Per-dataset targets and exclusions go in
 `scripts/sweep_manifest.json`, which also lists the dataset shapes not yet covered.
 
 ---

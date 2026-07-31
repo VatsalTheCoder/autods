@@ -43,6 +43,7 @@ import logging
 import sys
 import time
 import traceback
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,6 +56,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 from app.api.main import app  # noqa: E402
+from app.api.routes import upload as upload_routes  # noqa: E402
 from app.core.db import SessionLocal, database_healthy  # noqa: E402
 from app.core.storage import storage_healthy  # noqa: E402
 from app.models.agent_run import AgentRun  # noqa: E402
@@ -256,6 +258,34 @@ def _collect_results(record: RunRecord, job_id: int) -> None:
 # ---- Running one dataset ----------------------------------------------------
 
 
+@contextmanager
+def _only_one_pipeline_per_job():
+    """Stop ``POST /jobs`` from queueing the run the sweep is about to do itself.
+
+    Confirming a job enqueues the Celery task, and the worker container picks it
+    up immediately. The sweep then calls ``run_pipeline`` in-process for the same
+    job id, so **two pipelines run the same job at once** -- against one row in
+    ``jobs`` and one set of rows in ``agent_runs``. They race: the second one's
+    ``init_agent_runs`` deletes the rows the first is mid-way through updating,
+    and the loser dies with ``StaleDataError: expected to update 1 row(s); 0 were
+    matched``. Which one loses is a coin toss, so it reads as a flaky dataset
+    rather than as a harness fault.
+
+    It also quietly doubles the token spend and makes every recorded artifact
+    ambiguous about which of the two runs produced it.
+
+    The integration tests neutralise the same call for the same reason. Patching
+    the name in the route's namespace rather than in ``worker.tasks`` is what
+    makes it take effect: the route imported the function directly.
+    """
+    original = upload_routes.enqueue_pipeline
+    upload_routes.enqueue_pipeline = lambda job_id: None
+    try:
+        yield
+    finally:
+        upload_routes.enqueue_pipeline = original
+
+
 def run_case(case: SweepCase, client: TestClient) -> RunRecord:
     """Drive one dataset from upload to finished job, recording as it goes.
 
@@ -269,7 +299,7 @@ def run_case(case: SweepCase, client: TestClient) -> RunRecord:
 
     try:
         data = case.path.read_bytes()
-        upload = client.post("/upload", files={"file": (case.name, data, "text/csv")}, timeout=None)
+        upload = client.post("/upload", files={"file": (case.name, data, "text/csv")})
         # Any 2xx, not ``== 200``: upload answers 201 Created, and a harness
         # that reads a successful upload as a rejection reports every dataset
         # as broken while the stack is working perfectly.
@@ -308,17 +338,19 @@ def run_case(case: SweepCase, client: TestClient) -> RunRecord:
         if case.time_column:
             confirm_body["time_column"] = case.time_column
 
-        confirm = client.post("/jobs", json=confirm_body, timeout=None)
-        if not _ok(confirm):
-            record.status = "confirm rejected"
-            record.error = _detail(confirm)
-            return record
+        with _only_one_pipeline_per_job():
+            confirm = client.post("/jobs", json=confirm_body)
+            if not _ok(confirm):
+                record.status = "confirm rejected"
+                record.error = _detail(confirm)
+                return record
 
-        # Synchronous on purpose. Celery would be more faithful to production,
-        # but the sweep wants the run's wall time and its outcome in one place,
-        # and polling a queue for a dozen multi-minute jobs adds failure modes
-        # that belong to the harness rather than to the datasets.
-        run_pipeline(record.job_id)
+            # Synchronous on purpose. Celery would be more faithful to
+            # production, but the sweep wants the run's wall time and its
+            # outcome in one place, and polling a queue for a dozen multi-minute
+            # jobs adds failure modes that belong to the harness rather than to
+            # the datasets.
+            run_pipeline(record.job_id)
 
     except Exception:  # noqa: BLE001 -- a broken dataset must not end the sweep
         record.status = "harness error"
