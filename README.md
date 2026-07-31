@@ -183,6 +183,35 @@ and nothing cherry-picked to flatter a model. Regenerate with
 > have iCloud Drive enabled). Containers cannot read files through the macOS file
 > provider and fail with `OSError: [Errno 35] Resource deadlock avoided`.
 
+### Sweeping a set of datasets
+
+Every dataset shape takes a different route through the pipeline — a continuous target skips
+resampling, a numeric-only frame clusters with K-Means rather than K-Prototypes, a wide frame is
+where the report agent's prompt budget gives out. Each route has tests, but nothing ran *a set* of
+shapes back to back until now, so a change that breaks one shape while the demo dataset keeps
+passing had nothing to trip over.
+
+```bash
+make sweep                          # everything in data/examples
+make sweep paths=data/wide.csv      # or specific files and directories
+```
+
+It drives each CSV through upload → confirm → pipeline and writes one row per dataset to
+`sweep_results/`: status, wall time, which optional steps the planner skipped, **which agents fell
+back to their deterministic path**, the winning model and its score. That fallback column is the
+one worth watching — a run can complete, render a report, and be entirely the fallback output, and
+nothing else in the system says so.
+
+```
+| Dataset             | Rows × Cols | Task           | Status    | Time | Best model         | Score | Skipped                       | Fell back |
+| customer_churn.csv  | 500 × 10    | classification | completed | 50s  | LogisticRegression | 0.782 | sampling, feature_selection   | none      |
+| house_prices.csv    | 606 × 13    | regression     | completed | 48s  | LinearRegression   | 0.908 | sampling, feature_selection   | none      |
+```
+
+A sweep reports; it does not pass or fail, and it is deliberately not part of `make check` — it
+calls a live model and takes minutes per dataset. Per-dataset targets and exclusions go in
+`scripts/sweep_manifest.json`, which also lists the dataset shapes not yet covered.
+
 ---
 
 ## Context

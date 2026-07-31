@@ -72,6 +72,12 @@ logs/
 *.swp
 *~
 
+# ---- Dataset sweeps -----------------------------------------------------
+# `make sweep` writes a timestamped JSON and Markdown pair per run. Local
+# measurements, not source: they say more about the machine and the model's mood
+# that afternoon than about the code.
+sweep_results/
+
 # ---- Claude Code --------------------------------------------------------
 # Personal settings; shared project settings would go in .claude/settings.json
 .claude/settings.local.json

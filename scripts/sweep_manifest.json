@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Per-dataset overrides for scripts/dataset_sweep.py, keyed by filename.",
+    "Every field is optional. Omit a dataset entirely and the sweep confirms",
+    "whatever schema detection suggested -- which is worth doing deliberately,",
+    "because it exercises the same guess the user is offered at the checkpoint.",
+    "",
+    "'note' is the point of each entry: it says which dataset *shape* the file",
+    "is standing in for, so a sweep's table reads as coverage rather than as a",
+    "list of filenames. The shapes still uncovered are listed at the bottom."
+  ],
+
+  "datasets": [
+    {
+      "file": "customer_churn.csv",
+      "target": "churned",
+      "task_type": "classification",
+      "note": "baseline: small, mixed numeric + categorical, binary target, PII columns present"
+    },
+    {
+      "file": "house_prices.csv",
+      "target": "sale_price",
+      "task_type": "regression",
+      "note": "regression route: KFold, no resampling, r2/RMSE, plus a date column and an ordinal (epc_rating)"
+    },
+    {
+      "file": "fraud_transactions.csv",
+      "target": "is_fraud",
+      "task_type": "classification",
+      "note": "imbalanced + 50k rows: the SMOTE-inside-the-fold path, and the first size at which EDA cost is visible",
+      "time_column": "timestamp",
+      "_time_column_note": "Sent only on a build with time-ordered CV (PR #26). Until that merges the API rejects the field and the sweep records a confirm failure -- which is the honest outcome, not a random split reported as ordered."
+    }
+  ],
+
+  "_shapes_not_yet_covered": [
+    "wide: 100+ columns -- the report agent's prompt budget, flagged untested in BUILD_PLAN section 9",
+    "multiclass: >2 classes, for the OvR ROC-AUC branch and the absent PR-AUC",
+    "numeric-only: forces K-Means rather than K-Prototypes",
+    "high-cardinality text / free-text columns: the FrequencyEncoder and 'text' role",
+    "small n: a few hundred rows, against the fold and cluster minimums",
+    "messy: mixed dtypes in one column, an all-null column, duplicate headers, unicode names"
+  ]
+}
