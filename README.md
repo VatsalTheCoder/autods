@@ -192,8 +192,8 @@ shapes back to back until now, so a change that breaks one shape while the demo 
 passing had nothing to trip over.
 
 ```bash
-make sweep                          # everything in data/examples
-make sweep paths=data/mine.csv      # or specific files and directories
+make sweep                                   # everything in data/examples
+make sweep paths=data/wide_telemetry.csv     # or specific files and directories
 ```
 
 It drives each CSV through upload → confirm → pipeline and writes one row per dataset to
@@ -206,6 +206,7 @@ nothing else in the system says so.
 | Dataset             | Rows × Cols | Task           | Status    | Time | Best model         | Score | Skipped                     | Fell back |
 | customer_churn.csv  | 500 × 10    | classification | completed | 72s  | LogisticRegression | 0.782 | sampling, feature_selection | none      |
 | house_prices.csv    | 606 × 13    | regression     | completed | 104s | LinearRegression   | 0.908 | sampling, feature_selection | none      |
+| wide_telemetry.csv  | 500 × 122   | classification | completed | 78s  | LogisticRegression | 0.711 | sampling                    | none      |
 ```
 
 A sweep reports; it does not pass or fail, and it is deliberately not part of `make check` — it
