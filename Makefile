@@ -64,6 +64,12 @@ fmt:  ## Auto-fix formatting and lint issues
 
 check: lint test  ## Run everything CI runs
 
+# Not part of `check`: this one calls a live model and takes minutes per
+# dataset. It reports rather than passes -- read the table it prints.
+sweep:  ## Run every dataset in data/examples through the pipeline: make sweep [paths=...]
+	docker compose exec api python scripts/dataset_sweep.py $(or $(paths),data/examples) \
+		--manifest scripts/sweep_manifest.json --out sweep_results
+
 health:  ## Curl the health endpoint
 	@curl -s http://localhost:8000/health | python3 -m json.tool || echo "API not reachable"
 
