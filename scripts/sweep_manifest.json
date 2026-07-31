@@ -29,6 +29,14 @@
       "note": "regression route: KFold, no resampling, r2/RMSE, plus a date column and an ordinal (epc_rating)"
     },
     {
+      "file": "wide_telemetry.csv",
+      "target": "failed",
+      "task_type": "classification",
+      "note": "wide: 122 columns, 137 categorical levels, 6 real drivers among 116 noise columns -- the prompt budget, the one-hot expansion, and SHAP's name mapping at scale",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_wide_telemetry.py."
+    },
+    {
       "file": "fraud_transactions.csv",
       "target": "is_fraud",
       "task_type": "classification",
@@ -41,7 +49,6 @@
   ],
 
   "_shapes_not_yet_covered": [
-    "wide: 100+ columns -- the report agent's prompt budget, flagged untested in BUILD_PLAN section 9",
     "multiclass: >2 classes, for the OvR ROC-AUC branch and the absent PR-AUC",
     "numeric-only: forces K-Means rather than K-Prototypes",
     "high-cardinality text / free-text columns: the FrequencyEncoder and 'text' role",
