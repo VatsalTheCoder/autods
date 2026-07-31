@@ -17,7 +17,7 @@ import json
 
 from app.agents.report_writer import write_narrative
 from app.agents.summaries import summarise_run
-from app.core.llm.base import RateLimitError, TransientLLMError
+from app.core.llm.base import ModelTier, RateLimitError, TransientLLMError
 from app.core.llm.fake import FakeLLM
 from app.ml.contracts import (
     CleaningReport,
@@ -31,6 +31,13 @@ from app.ml.contracts import (
 )
 from app.ml.pdf import PdfError, render_pdf
 from app.ml.report import build_markdown_report
+
+# One scripted failure per tier. Derived from the enum rather than written as a
+# literal so that adding a tier does not quietly turn these degradation tests
+# into success tests: with too few failures scripted, FakeLLM falls through to
+# its default reply and the agent succeeds, which is what happened when
+# ModelTier.FALLBACK was added.
+TIERS = len(ModelTier)
 
 
 def evaluation_of() -> EvaluationReport:
@@ -91,7 +98,7 @@ class TestTheAgent:
         """A malformed reply or an outage is not something a smaller model fixes."""
         narrative = write_narrative(
             summarise_run(budget_tokens=6000),
-            client=FakeLLM([TransientLLMError("503 after retries")]),
+            client=FakeLLM([TransientLLMError("503 after retries")] * TIERS),
         )
         assert narrative.source == "default"
         assert narrative.is_empty()
@@ -109,7 +116,7 @@ class TestTheAgent:
         assert narrative.executive_summary
 
     def test_a_rate_limit_on_every_tier_still_degrades(self):
-        client = FakeLLM([RateLimitError("429"), RateLimitError("429")])
+        client = FakeLLM([RateLimitError("429")] * TIERS)
         narrative = write_narrative(summarise_run(budget_tokens=6000), client=client)
         assert narrative.source == "default"
         assert narrative.is_empty()

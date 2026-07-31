@@ -22,16 +22,25 @@ from dataclasses import dataclass
 
 
 class ModelTier(enum.StrEnum):
-    """Which of the two models a call should use.
+    """Which model a call should use.
 
     Agents ask for a *tier*, not a model name (spec section 6.1): cheap,
     high-throughput work goes to SMALL; the heavy reasoning of Critic / Report /
     Chat goes to LARGE. The concrete model id behind each tier is a setting, so
     the mapping can change without touching a single agent.
+
+    FALLBACK is not a third size, it is a third *supplier*. SMALL and LARGE are
+    both Gemini models, which means they share an availability story: when a
+    sweep found the large tier returning 503 eight times in one afternoon, the
+    small tier was no help, because the thing that was unavailable was Google's
+    Gemini capacity rather than one model within it. FALLBACK points at a Gemma
+    model instead -- a different family on the same key -- so that a Gemini
+    outage has somewhere to go that is not the deterministic template.
     """
 
     SMALL = "small"
     LARGE = "large"
+    FALLBACK = "fallback"
 
 
 class Role(enum.StrEnum):

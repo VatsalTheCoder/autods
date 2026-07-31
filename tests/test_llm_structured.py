@@ -209,16 +209,57 @@ class TestSteppingDownATier:
                 client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.SMALL)
             )
 
-    def test_a_non_rate_limit_failure_does_not_step_down(self):
-        """A different model will not fix an outage, and trying doubles latency."""
-        client = FakeLLM([TransientLLMError("503"), '{"value": "never reached"}'])
-        with pytest.raises(TransientLLMError):
+    def test_an_outage_steps_down_too(self):
+        """It did not, until a sweep showed what that cost.
+
+        The original rule was rate-limits-only, reasoning that a different model
+        cannot fix an outage. True while both tiers were Gemini. But on
+        2026-07-31 a five-dataset sweep took eight 503s and two 504s against two
+        rate limits, so the step-down sat out ten of twelve failures and the
+        critic and report writer produced deterministic templates on three runs
+        in four. With a Gemma tier on the end of the chain there is now somewhere
+        for a Gemini outage to go.
+        """
+        client = FakeLLM([TransientLLMError("503"), '{"value": "from the fallback"}'])
+        result = structured_complete_tiered(
+            client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.FALLBACK)
+        )
+        assert result.data.value == "from the fallback"
+        assert client.calls[-1].tier is ModelTier.FALLBACK
+
+    def test_the_whole_chain_is_walked_before_giving_up(self):
+        """Large is busy, small is out, and Gemma answers -- the real sequence."""
+        client = FakeLLM([RateLimitError("429"), TransientLLMError("503"), '{"value": "gemma"}'])
+        result = structured_complete_tiered(
+            client,
+            [user("hi")],
+            _Simple,
+            tiers=(ModelTier.LARGE, ModelTier.SMALL, ModelTier.FALLBACK),
+        )
+        assert result.data.value == "gemma"
+        # FakeLLM raises before recording, so a failed attempt leaves no
+        # RecordedCall. Exactly one recorded call, on the last tier, is therefore
+        # the proof that the two before it were reached and both raised.
+        assert [c.tier for c in client.calls] == [ModelTier.FALLBACK]
+
+    def test_a_schema_failure_still_does_not_step_down(self):
+        """The half of the original reasoning that survives.
+
+        A model that misread the schema has already been re-asked by
+        ``structured_complete``. Carrying the same confusion to another model
+        doubles the latency of a failure to buy very little -- which is exactly
+        the argument that used to cover outages too, and still holds here.
+        """
+        # More junk than the re-ask budget, so the tier genuinely gives up rather
+        # than stumbling onto a valid reply on its last attempt.
+        client = FakeLLM(["not json"] * 8)
+        with pytest.raises(StructuredOutputError):
             structured_complete_tiered(
-                client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.SMALL)
+                client, [user("hi")], _Simple, tiers=(ModelTier.LARGE, ModelTier.FALLBACK)
             )
-        # The second scripted reply is still queued, which is only true if the
-        # small tier was never attempted.
-        assert client.complete([user("x")]).text == '{"value": "never reached"}'
+        # Junk *is* recorded -- it is a reply, not an exception -- so every
+        # attempt shows up here, and all of them being LARGE is the assertion.
+        assert {c.tier for c in client.calls} == {ModelTier.LARGE}
 
     def test_usage_is_recorded_for_every_tier_attempted(self):
         """A run that paid for a rate-limited attempt should show that it did."""

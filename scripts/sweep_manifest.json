@@ -45,14 +45,57 @@
       "_in_repo_note": "Too large to commit; regenerate with data/_make_fraud.py.",
       "time_column": "timestamp",
       "_time_column_note": "Sent only on a build with time-ordered CV (PR #26). Until that merges the API rejects the field and the sweep records a confirm failure -- which is the honest outcome, not a random split reported as ordered."
+    },
+    {
+      "file": "multiclass_soil.csv",
+      "target": "grade",
+      "task_type": "classification",
+      "note": "multiclass: 4 classes at 40/30/20/10, for the OvR macro ROC-AUC branch and the deliberately absent PR-AUC. Rarest class is ~70 rows, so it is also the first multiclass target SMOTE has resampled",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_shape_datasets.py."
+    },
+    {
+      "file": "numeric_only_calibration.csv",
+      "target": "out_of_spec",
+      "task_type": "classification",
+      "note": "numeric-only: not one object or datetime column, the only condition under which clustering picks K-Means. Also puts an empty categorical branch list through the preprocessor and gives SHAP no one-hot names to map back",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_shape_datasets.py."
+    },
+    {
+      "file": "support_tickets.csv",
+      "target": "escalated",
+      "task_type": "classification",
+      "note": "high-cardinality text: 'subject' is 96% unique free text (the 'text' role, where FrequencyEncoder collapses to near-constant), 'customer_id' is ~160 levels with real repetition (the case frequency encoding exists for)",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_shape_datasets.py."
+    },
+    {
+      "file": "small_pilot.csv",
+      "target": "responded",
+      "task_type": "classification",
+      "note": "small n: 150 rows with exactly 4 positives, which trips two minimums on one run -- stratification drops from 5 folds to 4, and SMOTE declines because 4 is under its floor of 6",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_shape_datasets.py."
+    },
+    {
+      "file": "messy_intake.csv",
+      "target": "approved",
+      "task_type": "classification",
+      "note": "messy, gate probe: the duplicate 'amount' header is terminal -- inspect_csv rejects the upload rather than let pandas rename it to amount.1 behind the user's back. This file therefore tests one validation rule and never reaches the pipeline; the renamed variant below carries the rest of the mess",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_shape_datasets.py."
+    },
+    {
+      "file": "messy_intake_renamed.csv",
+      "target": "approved",
+      "task_type": "classification",
+      "note": "messy, pipeline probe: an all-null column, numbers mixed with prose in one column, unicode and whitespace-padded names, currency and thousands separators, four spellings of one country, three date formats, 32 duplicate rows. ~60% of the signal is inside the mess, so the score measures how much cleaning recovered",
+      "in_repo": false,
+      "_in_repo_note": "Generate with scripts/make_shape_datasets.py."
     }
   ],
 
-  "_shapes_not_yet_covered": [
-    "multiclass: >2 classes, for the OvR ROC-AUC branch and the absent PR-AUC",
-    "numeric-only: forces K-Means rather than K-Prototypes",
-    "high-cardinality text / free-text columns: the FrequencyEncoder and 'text' role",
-    "small n: a few hundred rows, against the fold and cluster minimums",
-    "messy: mixed dtypes in one column, an all-null column, duplicate headers, unicode names"
-  ]
+  "_shapes_not_yet_covered": [],
+  "_shapes_note": "Emptied once the five shapes above were generated and swept. The list was never meant to be permanent -- add to it when a route is identified that no dataset takes, and clear entries only after a sweep has actually run them."
 }
