@@ -70,6 +70,9 @@ class PipelineState(TypedDict, total=False):
     schema: SchemaReport
     target: str
     task_type: str
+    # The column folds are ordered by, when the user asked for that. None means
+    # random folds, which is the default and what every earlier run used.
+    time_column: str | None
     excluded: list[str]
 
     # ---- Produced by the nodes ---------------------------------------------

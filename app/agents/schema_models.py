@@ -119,6 +119,13 @@ class ConfirmedSchema(BaseModel):
     target_column: str
     task_type: TaskType
     columns: list[ConfirmedColumn] = Field(default_factory=list)
+    # Naming a column here switches cross-validation to time-ordered folds, so
+    # each fold is scored on rows that came *after* the ones it trained on. It is
+    # a decision rather than a detection: a dataset can hold a date that is not an
+    # event time -- a date of birth, a renewal date -- and ordering by one of
+    # those would be worse than not ordering at all. Left unset, folds are random
+    # exactly as before.
+    time_column: str | None = None
 
     def excluded(self) -> list[str]:
         return [c.name for c in self.columns if c.exclude]

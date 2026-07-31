@@ -239,6 +239,36 @@ def confirm_job(request: ConfirmJobRequest, db: Session = Depends(get_db)) -> Jo
             detail=f"Target {request.target_column!r} is not a column in this dataset.",
         )
 
+    if request.time_column and detected is not None:
+        column = detected.column(request.time_column)
+        if column is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Time column {request.time_column!r} is not a column in this dataset.",
+            )
+        # Checked against what detection typed rather than accepted on trust.
+        # Ordering by a categorical or free-text column produces a split that
+        # looks time-aware and is not, which is worse than plain random folds
+        # because the report would then claim a guarantee it does not have.
+        #
+        # Numeric is allowed alongside datetime because a great many datasets
+        # carry time as a counter -- an hour index, epoch seconds, a day number.
+        # Ordering needs values that compare, not values that parse as dates.
+        if column.semantic_type not in ("datetime", "numeric"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Time column {request.time_column!r} was detected as "
+                    f"{column.semantic_type}. Folds can only be ordered by a date "
+                    "or by a number that counts time."
+                ),
+            )
+        if request.time_column == request.target_column:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The time column cannot also be the target.",
+            )
+
     confirmed = request.as_confirmed_schema()
 
     if not confirmed.columns and detected is not None:

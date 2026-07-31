@@ -48,6 +48,8 @@ class JobContext:
     target: str
     task_type: str
     excluded: list[str]
+    # Set only when the user asked for time-ordered folds at the checkpoint.
+    time_column: str | None = None
 
 
 def _load_dataset(job_id: int) -> pd.DataFrame:
@@ -74,15 +76,19 @@ def _load_context(job_id: int) -> JobContext:
             )
 
         excluded: list[str] = []
+        time_column: str | None = None
         payload = load_json_artifact(db, job_id, CONFIRMED_SCHEMA_ARTIFACT)
         if payload is not None:
-            excluded = ConfirmedSchema.model_validate(payload).excluded()
+            confirmed = ConfirmedSchema.model_validate(payload)
+            excluded = confirmed.excluded()
+            time_column = confirmed.time_column
 
         return JobContext(
             filename=job.original_filename,
             target=job.target_column,
             task_type=job.task_type,
             excluded=excluded,
+            time_column=time_column,
         )
 
 
@@ -125,6 +131,7 @@ def run_pipeline(job_id: int) -> None:
                 "target": context.target,
                 "task_type": context.task_type,
                 "excluded": context.excluded,
+                "time_column": context.time_column,
                 "completed": [],
                 "notes": {},
             }
