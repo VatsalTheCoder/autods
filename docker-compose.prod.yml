@@ -1,0 +1,159 @@
+# The deployed stack. Used on its own, not as an overlay:
+#
+#     docker compose -f docker-compose.prod.yml up -d
+#
+# Standalone rather than `-f docker-compose.yml -f docker-compose.prod.yml`
+# because an overlay can only add. It cannot remove the MinIO services (real S3
+# replaces them), and it cannot remove a bind mount -- so the development file's
+# `./app:/code/app` would survive into production and the image would stop being
+# the thing that runs. Two files that duplicate a little is the cheaper mistake.
+#
+# What differs from the development stack, and why:
+#
+#   - no minio/minio-init      artifacts go to real S3 via the instance role
+#   - no bind mounts           the image is authoritative; nothing is patched live
+#   - no --reload              uvicorn reloading in production is a footgun
+#   - postgres/redis unpublished  they listen on the compose network only
+#   - only `ui` publishes      one door, and it is the one with the access gate
+#   - restart: unless-stopped  the stack survives a reboot of the instance
+#   - secrets from Secrets Manager, not from the environment
+#
+# NOT DEPLOYED YET. This file is written and reviewed but has never been run on
+# real AWS infrastructure -- see docs/DEPLOYMENT.md for exactly what that means
+# and which steps remain unverified.
+
+services:
+  postgres:
+    # Same image as development, including the pgvector extension that Section
+    # 10's embeddings need. On a t3.medium this is Postgres and the vector store
+    # both -- RDS is documented as future work in docs/DEPLOYMENT.md.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: autods
+      POSTGRES_DB: autods
+      # The one password that cannot come from Secrets Manager at runtime: the
+      # database has to exist before anything can read a secret to connect to
+      # it. Supplied from the instance's environment file, which is root-owned
+      # and mode 600. See docs/DEPLOYMENT.md, "The one bootstrap secret".
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in /etc/autods/autods.env}
+    # No published port. Nothing outside the compose network talks to Postgres,
+    # and publishing 5432 on a public instance is how databases get found.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autods -d autods"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    image: autods:latest
+    command: uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://autods:${POSTGRES_PASSWORD}@postgres:5432/autods
+      REDIS_URL: redis://redis:6379/0
+      # Empty, not absent. The default in config.py is the local MinIO endpoint,
+      # so leaving this out would point production at a container that is not
+      # here; an empty value is the documented spelling of "use real AWS S3".
+      S3_ENDPOINT_URL: ""
+      S3_BUCKET: ${S3_BUCKET:-autods-artifacts}
+      S3_REGION: ${AWS_REGION:-eu-west-2}
+      # No AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY. boto3 falls through to the
+      # instance role, which is the point of attaching one: no long-lived key
+      # exists to leak, and rotation is AWS's problem rather than ours.
+      #
+      # The API key and anything else sensitive arrive from this secret. It is a
+      # name, not a value -- safe to have in a file and in `docker inspect`.
+      AWS_SECRETS_ID: ${AWS_SECRETS_ID:?set AWS_SECRETS_ID in /etc/autods/autods.env}
+      MAX_MODELLING_ROWS: ${MAX_MODELLING_ROWS:-20000}
+    # No published port either. The UI reaches it over the compose network, and
+    # the access gate lives in the UI -- publishing 8000 would route around it.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build: .
+    image: autods:latest
+    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://autods:${POSTGRES_PASSWORD}@postgres:5432/autods
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: ""
+      S3_BUCKET: ${S3_BUCKET:-autods-artifacts}
+      S3_REGION: ${AWS_REGION:-eu-west-2}
+      AWS_SECRETS_ID: ${AWS_SECRETS_ID:?set AWS_SECRETS_ID in /etc/autods/autods.env}
+      MAX_MODELLING_ROWS: ${MAX_MODELLING_ROWS:-20000}
+    # --concurrency=2 rather than the default (one process per core, and a
+    # t3.medium has two): the pipeline's peak is SHAP and XGBoost holding a
+    # frame each, so concurrency is bounded by 4 GB of RAM, not by CPU. Two
+    # concurrent jobs on a t3.medium is already optimistic; see the sizing note
+    # in docs/DEPLOYMENT.md before raising it.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  ui:
+    build: .
+    image: autods:latest
+    command: streamlit run ui/Home.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      API_BASE_URL: http://api:8000
+      # Required here, unlike locally. This is the only service reachable from
+      # the internet, so this token is the whole access control story -- the
+      # `:?` makes an unset one a startup failure rather than a public app.
+      AUTODS_ACCESS_TOKEN: ${AUTODS_ACCESS_TOKEN:?set AUTODS_ACCESS_TOKEN in /etc/autods/autods.env}
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  # Named volumes live under /var/lib/docker, which on the deployed instance is
+  # the EBS root volume. Sized in docs/DEPLOYMENT.md; artifacts go to S3, so
+  # what accumulates here is Postgres (including embeddings) and Redis.
+  postgres_data:
+  redis_data:

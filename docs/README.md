@@ -6,6 +6,7 @@
 | [data-model.md](data-model.md) | The seven tables, what each is for, and the enums |
 | [api.md](api.md) | All 25 endpoints, plus the things the OpenAPI schema cannot tell you |
 | [RUNBOOK.md](RUNBOOK.md) | Cold start, measured demo timings, and the failure modes that look like bugs |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Putting it on AWS — written and reviewed, but not yet run against a real account |
 | [related-work.md](related-work.md) | Positioning against the similarly-named CHI '21 system by Wang et al. |
 
 The interactive API docs are at **http://localhost:8000/docs** once the stack is

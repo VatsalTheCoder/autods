@@ -10,8 +10,10 @@ them out.
 
 > **Status: 11 of 13 sections merged.** Milestones M1–M6 delivered. The pipeline runs end to end
 > against a live model — a 500-row classification job completes in about 60 seconds and a
-> 100,000-row one in about four minutes. What remains is deployment (Section 11, runbook written
-> and hosting outstanding) and the concentrated docs and testing pass (Section 12).
+> 100,000-row one in about four minutes. What remains is deployment (Section 11 — the AWS
+> guide, production compose file and scripts are written and the code changes are done and
+> tested, but nothing has been run against a real AWS account) and the concentrated docs and
+> testing pass (Section 12).
 >
 > See [the progress report](https://claude.ai/code/artifact/2fb6fa9c-b8bc-448e-b653-3145e3c02794)
 > for measured figures and what running it on real data turned up.
@@ -107,8 +109,8 @@ deployment needs no code change — which is the property the spec was protectin
 - [x] **Section 8** — Final training, SHAP, prediction *(milestone M4)*
 - [x] **Section 9** — Critic and report *(milestone M5)*
 - [x] **Section 10** — RAG chat *(milestone M6)*
-- [ ] **Section 11** — AWS deployment *(milestone M7)* — runbook written, hosting outstanding
-- [ ] **Section 12** — Testing and documentation — end-to-end tests now run in CI; diagrams outstanding
+- [ ] **Section 11** — AWS deployment *(milestone M7)* — code, compose file, scripts and guide done; not yet run on real AWS
+- [ ] **Section 12** — Testing and documentation — end-to-end tests run in CI and the diagrams are written; consolidation pass outstanding
 
 This list is maintained by hand in three places — here, the app's landing page, and the progress
 report — so if they ever disagree, the repository is the one to trust.

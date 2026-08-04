@@ -201,7 +201,7 @@ with st.expander("Build progress — 11 of 13 sections merged"):
 | 8 · Final training, SHAP & prediction *(milestone M4)* | ✅ done |
 | 9 · Critic & report *(milestone M5)* | ✅ done |
 | 10 · RAG chat *(milestone M6)* | ✅ done |
-| 11 · AWS deployment *(milestone M7)* | 🟡 in progress — runbook written, hosting pending |
+| 11 · AWS deployment *(milestone M7)* | 🟡 in progress — written, not yet run on real AWS |
 | 12 · Testing & docs | 🟡 in progress |
 
 See `BUILD_PLAN.md` for the full plan.
