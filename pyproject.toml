@@ -128,3 +128,12 @@ extend-immutable-calls = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+markers = [
+    # The whole-pipeline tests. Three files, and between them 69% of the suite's
+    # runtime -- test_pipeline.py alone is 48% -- because each one uploads a
+    # dataset and runs every node for real: four model candidates across folds,
+    # SHAP, matplotlib, WeasyPrint. Marked so CI can run them where the wait is
+    # worth it (a push to main) and skip them where it is not (every push to a
+    # branch). Nothing else is marked: the rest of the suite is 85 seconds.
+    "e2e: drives the entire pipeline end to end; slow by nature, not by accident",
+]

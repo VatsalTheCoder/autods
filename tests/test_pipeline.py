@@ -55,10 +55,15 @@ from app.services.artifacts import (
 from app.worker.pipeline import run_pipeline
 from app.worker.state import PIPELINE_NODES
 
-pytestmark = pytest.mark.skipif(
-    not (database_healthy() and storage_healthy()),
-    reason="needs Postgres and object storage (start with `make up`)",
-)
+pytestmark = [
+    # Slow by nature: see the `e2e` marker in pyproject.toml. CI runs these on
+    # a push to main, not on every pull request.
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        not (database_healthy() and storage_healthy()),
+        reason="needs Postgres and object storage (start with `make up`)",
+    ),
+]
 
 N_ROWS = 60
 

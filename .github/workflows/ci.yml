@@ -6,6 +6,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # So the end-to-end suite can be run against a branch before merging it, on
+  # the pull requests where that is worth 14 minutes. See the `suite` matrix.
+  workflow_dispatch:
 
 # If you push twice quickly, cancel the older run instead of paying for both.
 concurrency:
@@ -13,9 +16,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Lint, type-check and test
+  # Lint is its own job because it needs ruff and nothing else: no Postgres, no
+  # MinIO, no 300MB of scientific wheels. It reports in well under a minute,
+  # which is the difference between catching a formatting slip before you have
+  # context-switched away and catching it after.
+  lint:
+    name: Lint and formatting
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  quality:
+    name: Test (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+
+    # Two suites, and on a pull request only the fast one runs.
+    #
+    # The three test_pipeline*.py files carry the `e2e` marker and 69% of the
+    # runtime between them -- each drives a real dataset through every node, so
+    # the cost is four model candidates across folds, SHAP, matplotlib and
+    # WeasyPrint, repeated per file. Everything else is 85 seconds.
+    #
+    # The risk this takes on is precise and worth naming: PR #17 exists because
+    # CI was green on fourteen merged pull requests without ever exercising the
+    # pipeline, and this reintroduces a version of that gap on branches. Three
+    # things keep it from being the same mistake. The suite still runs in full
+    # on every push to main, so a break is caught at merge rather than never.
+    # workflow_dispatch runs it against a branch on demand, which is the right
+    # move for any PR touching worker/, ml/ or agents/. And the leakage tests --
+    # the ones BUILD_PLAN calls the most valuable in the repo -- are *not*
+    # marked e2e, take 3.8 seconds, and run on every pull request.
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: >-
+          ${{ github.event_name == 'pull_request'
+              && fromJSON('["unit"]')
+              || fromJSON('["unit","e2e"]') }}
 
     # Postgres and Redis, so the tests that need them actually run. Until this
     # existed the suite reported "727 passed, 117 skipped" and every one of those
@@ -98,12 +141,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[ui,dev]"
 
-      - name: Lint (ruff)
-        run: ruff check .
-
-      - name: Check formatting (ruff)
-        run: ruff format --check .
-
       # Not a service container: MinIO needs `server /data` as its command, and
       # GitHub's `services:` block has no way to pass one. Compose starts it the
       # same way, with a separate mc container to make the bucket; here the app's
@@ -155,7 +192,12 @@ jobs:
           PY
 
       - name: Run tests
-        run: pytest tests/ --cov=app --cov-report=term-missing
+        run: |
+          if [ "${{ matrix.suite }}" = "e2e" ]; then
+            pytest tests/ -m e2e --cov=app --cov-report=term-missing
+          else
+            pytest tests/ -m "not e2e" --cov=app --cov-report=term-missing
+          fi
 
   docs:
     name: Check documentation links
