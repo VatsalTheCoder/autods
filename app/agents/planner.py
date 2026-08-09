@@ -39,7 +39,7 @@ AGENT_NAME = "planner"
 _SYSTEM = (
     "You are planning how a tabular dataset should be prepared and explored "
     "before a model is trained on it. You will be given a summary of its "
-    "columns. Decide seven things.\n"
+    "columns. Decide eight things.\n"
     "1. Whether exactly-repeated rows should be removed -- normally yes, but say "
     "no if repeated rows are plausibly meaningful records rather than duplicates.\n"
     "2. Whether columns that are mostly empty should be dropped rather than "
@@ -57,6 +57,15 @@ _SYSTEM = (
     "each is likely to matter.\n"
     "7. Whether to train on a random sample rather than every row -- yes only "
     "for a very large dataset, no otherwise.\n"
+    "8. Whether to drop rows in the extreme tail of a numeric target. Only for a "
+    "numeric target, never for a class one. Say yes when the target's largest "
+    "values are implausible or many times its typical value -- a nightly rate of "
+    "$10,000 against a median of $106, a zero price, a duration of a million "
+    "seconds -- because such rows dominate squared-error training while "
+    "representing a different population. Say no when the spread is genuine and "
+    "the largest values are exactly what the model is wanted for, such as "
+    "predicting insurance losses or peak demand. At most the outermost half a "
+    "percent at each end is ever removed.\n"
     "Give a one or two sentence rationale. Do not suggest any other steps."
 )
 
@@ -116,6 +125,14 @@ def _default_plan(report: SchemaReport, rationale: str) -> PlannerPlan:
     about whether a dataset is *large* or *wide*, with no threshold that is right
     across datasets, and switching them on by default would mean quietly
     discarding rows or columns on a run where nothing asked for it.
+
+    Trimming the target's tail stays off for a sharper version of that reason.
+    Profiling *has* measured the skew, so the deterministic path could switch it
+    on the way it does SMOTE -- but skew alone cannot tell a data-entry artefact
+    from a genuine extreme, and on an insurance-loss or peak-demand target the
+    largest values are the entire point. Deleting them because a number crossed a
+    threshold would answer a different question than the user asked. So this one
+    flag waits for either the LLM's judgement or the user's.
     """
     imbalanced = bool(report.class_balance and report.class_balance.imbalanced)
     if imbalanced:
@@ -142,6 +159,16 @@ def _dataset_prompt(report: SchemaReport) -> str:
         lines.append(
             f"Target balance: {balance.imbalance_ratio:.1f}:1 between the commonest "
             f"and rarest class ({'imbalanced' if balance.imbalanced else 'balanced'})."
+        )
+    # The regression counterpart, and for the same reason: decision 8 is about
+    # the shape of the target's tail, and asking for it while showing only
+    # column names would be asking the model to guess.
+    if report.target_distribution:
+        dist = report.target_distribution
+        lines.append(
+            f"Target distribution: min {dist.minimum:,.4g}, median {dist.median:,.4g}, "
+            f"max {dist.maximum:,.4g}, skew {dist.skew:.1f}"
+            f"{' (heavy right tail)' if dist.heavy_tailed else ''}."
         )
     lines += ["", "Columns:"]
     for col in report.columns:

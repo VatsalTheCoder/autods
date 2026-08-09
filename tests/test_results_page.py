@@ -292,3 +292,85 @@ class TestDownloadingTheReport:
     def test_the_report_body_is_rendered(self, monkeypatch):
         app = run_page(monkeypatch, routes={"evaluation": EVALUATION, "report": REPORT})
         assert "The report body." in page_text(app)
+
+
+class TestTheLeaderboardMarksTheBaseline:
+    """The baseline is ranked with everything else, so rank 1 is no longer the winner.
+
+    On a dataset the features say nothing about, the featureless baseline tops
+    the board. Labelling that row "winner" would point the reader at a model
+    that was never trained on a feature and never served.
+    """
+
+    @staticmethod
+    def _board(baseline_score: float, baseline_rank: int, model_rank: int) -> dict:
+        from app.ml.contracts import Leaderboard, LeaderboardEntry
+
+        return Leaderboard(
+            task_type="classification",
+            target_column="churned",
+            primary_metric="f1_macro",
+            n_folds=5,
+            cv_strategy="StratifiedKFold",
+            entries=[
+                LeaderboardEntry(
+                    rank=model_rank,
+                    model_name="LogisticRegression",
+                    primary_metric="f1_macro",
+                    score=0.55,
+                    std=0.02,
+                ),
+                LeaderboardEntry(
+                    rank=baseline_rank,
+                    model_name="Baseline (most frequent class)",
+                    primary_metric="f1_macro",
+                    score=baseline_score,
+                    std=0.01,
+                    is_baseline=True,
+                ),
+            ],
+            warnings=["No model beat the featureless baseline."],
+        ).model_dump(mode="json")
+
+    def test_the_baseline_row_is_labelled_and_not_called_the_winner(self, monkeypatch):
+        app = run_page(
+            monkeypatch,
+            routes={
+                "evaluation": EVALUATION,
+                "leaderboard": self._board(baseline_score=0.60, baseline_rank=1, model_rank=2),
+            },
+        )
+        text = page_text(app)
+        # The dataframe reaches page_text as JSON, where the em dash is escaped.
+        assert "baseline \\u2014 not served" in text
+        assert "ignores every feature" in text
+        assert "Class balancing" not in text, "an empty resampling value is not a value"
+
+    def test_the_winner_label_follows_the_best_real_model(self, monkeypatch):
+        """Rank 2 here, because the baseline took rank 1."""
+        app = run_page(
+            monkeypatch,
+            routes={
+                "evaluation": EVALUATION,
+                "leaderboard": self._board(baseline_score=0.60, baseline_rank=1, model_rank=2),
+            },
+        )
+        table = next(
+            json.loads(line)
+            for line in page_text(app).splitlines()
+            if line.startswith("[{") and '"Rank"' in line
+        )
+        winner = next(r for r in table if r["Note"] == "winner")
+        assert winner["Model"] == "LogisticRegression"
+        assert winner["Rank"] == 2
+        assert not [r for r in table if r["Rank"] == 1 and r["Note"] == "winner"]
+
+    def test_the_verdict_reaches_the_page(self, monkeypatch):
+        app = run_page(
+            monkeypatch,
+            routes={
+                "evaluation": EVALUATION,
+                "leaderboard": self._board(baseline_score=0.60, baseline_rank=1, model_rank=2),
+            },
+        )
+        assert "No model beat the featureless baseline." in page_text(app)

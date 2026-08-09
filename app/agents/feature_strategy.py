@@ -72,6 +72,21 @@ AGENT_NAME = "feature_strategy"
 # become ``text`` and get frequency encoding, which costs one column instead.
 MAX_ONEHOT_CARDINALITY = 50
 
+# ...but above *this* proportion of distinct values, frequency encoding stops
+# being reasonable too, and the column is dropped instead.
+#
+# Frequency encoding earns its place by preserving the one thing that usually
+# matters about a high-cardinality column: whether a value is common or rare. A
+# column where almost every value occurs once has no such signal to preserve. It
+# encodes to 1/n for every training row -- a constant, which no model can split
+# on -- and to 0.0 for every held-out row, since none of those values were seen
+# during the fold's fit. The result is a column that is constant in training and
+# a different constant at scoring time.
+#
+# NYC Airbnb's ``name`` is the case: 47,905 distinct listing titles across 48,895
+# rows. It cost a column, an entry in every SHAP chart, and contributed nothing.
+MAX_TEXT_UNIQUENESS_RATE = 0.9
+
 # How many sample values the prompt shows per column. Unlike the planner -- which
 # deliberately sends no values at all -- this agent needs them: deciding that a
 # column is ordinal, and in what order, is impossible without seeing that it
@@ -241,6 +256,19 @@ def default_strategy(name: str, series: pd.Series) -> ColumnStrategy:
             column=name, role="datetime", impute="median", encode="none", scale="standard"
         )
     if role == "text":
+        if is_near_unique(series):
+            return ColumnStrategy(
+                column=name,
+                role="drop",
+                impute="none",
+                encode="none",
+                scale="none",
+                rationale=(
+                    f"{series.nunique(dropna=True):,} distinct values across "
+                    f"{len(series):,} rows -- nearly one per row, so counting how "
+                    "often each occurs carries no signal"
+                ),
+            )
         return ColumnStrategy(
             column=name, role="text", impute="most_frequent", encode="frequency", scale="none"
         )
@@ -266,6 +294,22 @@ def observed_role(series: pd.Series) -> ColumnRole:
     if int(series.nunique(dropna=True)) > MAX_ONEHOT_CARDINALITY:
         return "text"
     return "categorical"
+
+
+def is_near_unique(series: pd.Series) -> bool:
+    """True when the column has so few repeats that frequency encoding is empty.
+
+    Kept out of ``observed_role`` deliberately. That function answers "what is
+    this column", and the answer here is still *text* -- a near-unique string
+    column is free text or an identifier either way. This is the separate
+    question of whether the one encoding available to a text column can do
+    anything with it, which is why the callers apply it alongside the role rather
+    than instead of it.
+    """
+    n_rows = int(series.shape[0])
+    if not n_rows:
+        return False
+    return int(series.nunique(dropna=True)) / n_rows > MAX_TEXT_UNIQUENESS_RATE
 
 
 # ---- Gate 2: making a choice coherent with the column it is about ------------
@@ -390,6 +434,24 @@ def _coerce_role(
         )
 
     if observed == "text":
+        # Near-unique first: no role survives here. Frequency encoding a column
+        # with one value per row produces a constant, and every other encoding
+        # was already off the table at this cardinality -- so there is nothing
+        # left to build and the honest answer is to drop it, whatever was asked.
+        if is_near_unique(series):
+            if requested == "drop":
+                return "drop"
+            return _override(
+                overrides,
+                item.column,
+                "role",
+                requested,
+                "drop",
+                f"{series.nunique(dropna=True):,} distinct values across "
+                f"{len(series):,} rows -- nearly one per row, so counting how often "
+                "each occurs carries no signal",
+            )
+
         # High cardinality. Ordered or one-hot encoded labels are both off the
         # table; frequency encoding is what "text" means downstream.
         if requested in ("text", "drop"):

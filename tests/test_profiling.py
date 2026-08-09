@@ -7,9 +7,10 @@ concentrated: the measurable half of schema detection, checked precisely.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
-from app.services.profiling import profile_dataset, read_csv_frame
+from app.services.profiling import profile_dataset, read_csv_frame, retarget
 
 
 def _frame() -> pd.DataFrame:
@@ -139,3 +140,75 @@ def test_read_csv_frame_round_trips():
     frame = read_csv_frame(data)
     assert list(frame.columns) == ["a", "b"]
     assert frame.shape == (2, 2)
+
+
+class TestRetargetingToTheConfirmedTarget:
+    """Profiling runs before anyone has said what they are predicting.
+
+    ``_suggest_target`` guesses, and the class balance and target distribution
+    are measured against that guess. The user then picks a target at the
+    checkpoint. Until the report is re-aimed, it carries two numbers describing
+    the wrong column -- and the planner is asked to judge that column's tail.
+    """
+
+    @staticmethod
+    def _frame() -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        n = 400
+        return pd.DataFrame(
+            {
+                "rooms": rng.integers(1, 5, n),
+                # Heavy right tail; the column the user actually wants.
+                "price": np.round(np.exp(rng.normal(4.6, 1.0, n))),
+                # Tame and balanced; the column profiling is likelier to pick.
+                "occupancy": rng.integers(0, 366, n),
+                "churn": rng.choice(["yes", "no"], n),
+            }
+        )
+
+    def test_the_distribution_follows_the_confirmed_target(self):
+        frame = self._frame()
+        report = profile_dataset(frame)
+
+        aimed = retarget(report, frame, target="price", task_type="regression")
+
+        assert aimed.suggested_target == "price"
+        assert aimed.target_distribution is not None
+        assert aimed.target_distribution.maximum == frame["price"].max()
+        assert aimed.target_distribution.heavy_tailed
+
+    def test_switching_to_a_class_target_swaps_which_measurement_exists(self):
+        frame = self._frame()
+
+        aimed = retarget(profile_dataset(frame), frame, target="churn", task_type="classification")
+
+        assert aimed.task_type == "classification"
+        assert aimed.class_balance is not None
+        assert aimed.target_distribution is None
+
+    def test_switching_to_a_numeric_target_clears_a_stale_class_balance(self):
+        frame = self._frame()
+        classified = retarget(
+            profile_dataset(frame), frame, target="churn", task_type="classification"
+        )
+
+        aimed = retarget(classified, frame, target="price", task_type="regression")
+
+        assert aimed.class_balance is None
+        assert aimed.target_distribution is not None
+
+    def test_the_column_profiles_are_not_recomputed(self):
+        """Re-deriving them would discard whatever the LLM pass enriched."""
+        frame = self._frame()
+        report = profile_dataset(frame)
+        report.columns[0].meaning = "how many rooms the listing has"
+
+        aimed = retarget(report, frame, target="price", task_type="regression")
+
+        assert aimed.columns[0].meaning == "how many rooms the listing has"
+        assert [c.name for c in aimed.columns] == [c.name for c in report.columns]
+
+    def test_a_target_that_is_not_in_the_frame_leaves_the_report_alone(self):
+        frame = self._frame()
+        report = profile_dataset(frame)
+        assert retarget(report, frame, target="nope", task_type="regression") is report

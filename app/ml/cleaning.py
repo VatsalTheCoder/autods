@@ -23,6 +23,15 @@ them learns a value from the data that is then applied back to it:
 * a dtype correction is a re-reading of values already present, not a new value
   derived from other rows.
 
+The target's extreme tail (spec 7.4, added after a listings dataset scored R²
+0.07 because a few hundred rows owned most of the squared error) belongs to the
+second of those. The *bound* is a whole-dataset quantile, which sounds like the
+kind of statistic this module refuses to compute -- but it is used to delete
+records, not to fill them in, so the rows it identifies are absent from training
+and test folds alike and nothing about one fold reaches another. What it does
+change is the population being modelled, which is why it happens only when the
+plan asks for it and is reported in full either way.
+
 Column types come from the schema report rather than being re-sniffed here, so
 there is exactly one place in the codebase that decides what a column is
 (``services/profiling.py``) and cleaning simply acts on its verdict.
@@ -34,15 +43,31 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from app.agents.schema_models import SchemaReport, TaskType
 from app.core.config import get_settings
-from app.ml.contracts import CleaningReport, DroppedColumn, DtypeCorrection, PlannerPlan
+from app.ml.contracts import (
+    CleaningReport,
+    DroppedColumn,
+    DtypeCorrection,
+    PlannerPlan,
+    TargetOutliers,
+)
 
 logger = logging.getLogger(__name__)
 
 AGENT_NAME = "cleaning"
+
+# How far into each tail of a numeric target counts as "extreme". Half a percent
+# per end is a deliberate choice of a *quantile* rule over an IQR fence: on the
+# heavy-tailed targets this exists for, the textbook 1.5x IQR fence flags several
+# percent of perfectly ordinary rows, and the amount removed then depends on the
+# shape of the distribution rather than on anything the user agreed to. A
+# quantile is bounded by construction -- at most 1% of rows can ever leave here,
+# whatever the data looks like.
+_TARGET_TAIL_QUANTILE = 0.005
 
 # Fraction of a column's values that must survive ``to_numeric`` / ``to_datetime``
 # for the conversion to be accepted. Not 1.0: a genuinely numeric column often
@@ -113,6 +138,32 @@ def clean_frame(
     if missing_target:
         frame = frame[frame[target].notna()]
 
+    # ---- 2b. Targets that are not finite numbers ---------------------------
+    # Regression only, and not negotiable: an infinity in the target makes every
+    # error metric infinite and R² undefined, so one such row destroys the whole
+    # evaluation. Unlike the tail below, there is no reading under which these
+    # are records worth keeping.
+    non_finite_target = 0
+    if task_type == "regression":
+        finite = np.isfinite(pd.to_numeric(frame[target], errors="coerce"))
+        non_finite_target = int((~finite).sum())
+        if non_finite_target:
+            frame = frame[finite]
+
+    # ---- 2c. The target's extreme tail -------------------------------------
+    target_outliers = _target_outliers(
+        frame,
+        target=target,
+        task_type=task_type,
+        trim=plan.trim_target_outliers,
+    )
+    if target_outliers is not None and target_outliers.n_removed:
+        values = pd.to_numeric(frame[target], errors="coerce")
+        inside = values.between(
+            target_outliers.lower_bound, target_outliers.upper_bound, inclusive="both"
+        )
+        frame = frame[inside]
+
     # ---- 3. Duplicate rows -------------------------------------------------
     duplicates_removed = 0
     if plan.drop_duplicate_rows:
@@ -155,8 +206,10 @@ def clean_frame(
         n_columns_after=int(frame.shape[1]),
         duplicate_rows_removed=duplicates_removed,
         missing_target_rows_removed=missing_target,
+        non_finite_target_rows_removed=non_finite_target,
         dropped_columns=dropped,
         dtype_corrections=corrections,
+        target_outliers=target_outliers,
         missing_values_left_to_the_pipeline=remaining,
     )
     logger.info(
@@ -168,6 +221,77 @@ def clean_frame(
         sum(remaining.values()),
     )
     return CleaningResult(frame=frame, report=report)
+
+
+def _target_outliers(
+    frame: pd.DataFrame,
+    *,
+    target: str,
+    task_type: TaskType,
+    trim: bool,
+) -> TargetOutliers | None:
+    """Measure the numeric target's extreme tail, and say whether it was cut.
+
+    Always measures, for a regression target with enough rows to have a tail at
+    all. ``trim`` decides only whether ``n_removed`` is populated -- the caller
+    does the removing, so this function has no side effects and can be tested
+    against a frame directly.
+
+    The bound is symmetric because "extreme" has two ends, but on the targets
+    this exists for only the upper one usually catches anything: a price, a
+    duration or a count is bounded below by zero and unbounded above.
+
+    Returns ``None`` when there is nothing to say -- a classification target, a
+    target that will not parse as numbers, a dataset too small for the outermost
+    half-percent to mean anything, or a target so tightly grouped that the
+    quantiles coincide and no row is outside them.
+    """
+    if task_type != "regression":
+        return None
+
+    values = pd.to_numeric(frame[target], errors="coerce").dropna()
+    # Below this the outermost half-percent is less than a single row, so the
+    # quantiles are interpolations between neighbours and "the extreme tail" is
+    # not a thing the data can support.
+    if len(values) < 1 / _TARGET_TAIL_QUANTILE:
+        return None
+
+    lower = float(values.quantile(_TARGET_TAIL_QUANTILE))
+    upper = float(values.quantile(1 - _TARGET_TAIL_QUANTILE))
+    if not (np.isfinite(lower) and np.isfinite(upper)) or lower >= upper:
+        return None
+
+    outside = values[(values < lower) | (values > upper)]
+    n_detected = int(len(outside))
+    if not n_detected:
+        return None
+
+    median = float(values.median())
+    maximum = float(values.max())
+    if trim:
+        note = (
+            f"{n_detected:,} rows whose {target} fell outside "
+            f"[{lower:,.4g}, {upper:,.4g}] were removed, as the plan asked. Scores "
+            f"below describe the remaining {len(values) - n_detected:,} rows, not "
+            "the extremes."
+        )
+    else:
+        note = (
+            f"{n_detected:,} rows have a {target} outside [{lower:,.4g}, {upper:,.4g}] "
+            f"-- the median is {median:,.4g} and the largest value is {maximum:,.4g}. "
+            "They were kept, and squared-error metrics are dominated by them."
+        )
+
+    return TargetOutliers(
+        column=target,
+        n_detected=n_detected,
+        n_removed=n_detected if trim else 0,
+        lower_bound=lower,
+        upper_bound=upper,
+        median=median,
+        maximum=maximum,
+        note=note,
+    )
 
 
 def _correct_dtypes(

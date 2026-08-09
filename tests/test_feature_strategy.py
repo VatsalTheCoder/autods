@@ -23,7 +23,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.agents.feature_strategy import default_strategy, make_strategy, observed_role, reconcile
+from app.agents.feature_strategy import (
+    default_strategy,
+    is_near_unique,
+    make_strategy,
+    observed_role,
+    reconcile,
+)
 from app.core.llm.base import LLMConfigError, RateLimitError
 from app.core.llm.fake import FakeLLM
 from app.ml.contracts import ColumnStrategy
@@ -45,7 +51,11 @@ def frame() -> pd.DataFrame:
             "city": rng.choice(["London", "Leeds", "Bristol"], 60),
             "size": rng.choice(["small", "medium", "large"], 60),
             "signed_up": pd.to_datetime(rng.integers(1_600_000_000, 1_700_000_000, 60), unit="s"),
-            "user_ref": [f"ref-{i:04d}" for i in range(60)],
+            # High cardinality but with repeats, so frequency encoding has
+            # something to encode. A column with one value per row is a
+            # different case -- see ``TestNearUniqueTextIsDropped``.
+            "user_ref": [f"ref-{i % 52:04d}" for i in range(60)],
+            "listing_name": [f"a nice place {i}" for i in range(60)],
             "churn": ["yes", "no"] * 30,
         }
     )
@@ -325,3 +335,53 @@ class TestDegradingToDefaults:
         strategy = make_strategy(frame, target="churn", client=FakeLLM(['{"columns": []}']))
         assert len(strategy.columns) == len(frame.columns) - 1
         assert len(strategy.defaulted_columns) == len(frame.columns) - 1
+
+
+class TestNearUniqueTextIsDropped:
+    """A column with one value per row has nothing for frequency encoding to say.
+
+    NYC Airbnb's ``name`` is the case: 47,905 distinct listing titles across
+    48,895 rows. Encoded by frequency it becomes 1/n for every training row -- a
+    constant no model can split on -- and 0.0 for every held-out row, since none
+    of those titles were seen during the fold's fit. It cost a column and an
+    entry in every SHAP chart, and carried no signal at all.
+    """
+
+    def test_the_dtype_default_drops_it(self, frame):
+        strategy = default_strategy("listing_name", frame["listing_name"])
+        assert strategy.role == "drop"
+        assert strategy.encode == "none"
+        assert "nearly one per row" in strategy.rationale
+
+    def test_a_column_with_repeats_is_still_frequency_encoded(self, frame):
+        """The rule must not swallow the case frequency encoding exists for."""
+        strategy = default_strategy("user_ref", frame["user_ref"])
+        assert strategy.role == "text"
+        assert strategy.encode == "frequency"
+
+    def test_the_model_asking_for_frequency_encoding_is_overruled(self, frame):
+        result = _strategy(frame, ColumnStrategy(column="listing_name", role="text"))
+
+        assert result.for_column("listing_name").role == "drop"
+        override = next(
+            o for o in result.overrides if o.column == "listing_name" and o.field == "role"
+        )
+        assert override.requested == "text"
+        assert override.applied == "drop"
+        assert "nearly one per row" in override.reason
+
+    def test_the_model_asking_to_drop_it_is_not_recorded_as_an_override(self, frame):
+        """Agreeing with the code is not a correction."""
+        result = _strategy(frame, ColumnStrategy(column="listing_name", role="drop"))
+
+        assert result.for_column("listing_name").role == "drop"
+        assert not [o for o in result.overrides if o.column == "listing_name"]
+
+    def test_is_near_unique_reads_the_ratio_not_the_count(self):
+        many_repeats = pd.Series([f"v{i % 100}" for i in range(10_000)])
+        assert not is_near_unique(many_repeats), "100 distinct in 10,000 rows has plenty of signal"
+        all_distinct = pd.Series([f"v{i}" for i in range(200)])
+        assert is_near_unique(all_distinct)
+
+    def test_an_empty_column_is_not_near_unique(self):
+        assert not is_near_unique(pd.Series([], dtype=object))

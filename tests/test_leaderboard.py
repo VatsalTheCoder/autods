@@ -82,12 +82,18 @@ class TestTheRoster:
     """Spec 7.7 names four families per task type."""
 
     def test_classification_has_the_four_the_spec_asks_for(self):
-        names = {c.name for c in build_roster("classification", random_seed=0)}
+        names = {c.name for c in build_roster("classification", random_seed=0) if not c.is_baseline}
         assert names == {"RandomForest", "LogisticRegression", "XGBoost", "LightGBM"}
 
     def test_regression_has_the_four_the_spec_asks_for(self):
-        names = {c.name for c in build_roster("regression", random_seed=0)}
+        names = {c.name for c in build_roster("regression", random_seed=0) if not c.is_baseline}
         assert names == {"RandomForest", "LinearRegression", "XGBoost", "LightGBM"}
+
+    def test_each_task_type_also_gets_exactly_one_baseline(self):
+        """The row that says what the four scores are worth comparing against."""
+        for task in ("classification", "regression"):
+            baselines = [c for c in build_roster(task, random_seed=0) if c.is_baseline]
+            assert len(baselines) == 1, task
 
     def test_the_roster_is_seeded_so_a_reported_score_is_reproducible(self, balanced):
         first, _ = _run(balanced, "churn", "classification")
@@ -98,7 +104,7 @@ class TestTheRoster:
 class TestTheRanking:
     def test_every_candidate_appears(self, balanced):
         board, _ = _run(balanced, "churn", "classification")
-        assert len(board.entries) == 4
+        assert len(board.entries) == 5  # the spec's four, plus the baseline
 
     def test_they_are_ranked_best_first(self, balanced):
         board, _ = _run(balanced, "churn", "classification")
@@ -107,7 +113,7 @@ class TestTheRanking:
 
     def test_the_ranks_are_numbered_from_one(self, balanced):
         board, _ = _run(balanced, "churn", "classification")
-        assert [e.rank for e in board.entries] == [1, 2, 3, 4]
+        assert [e.rank for e in board.entries] == [1, 2, 3, 4, 5]
 
     def test_every_candidate_saw_the_same_splits(self, balanced):
         """The property the whole comparison rests on.

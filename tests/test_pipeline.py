@@ -460,8 +460,15 @@ class TestVisibleViaAPI:
             "LogisticRegression",
             "XGBoost",
             "LightGBM",
+            "Baseline (most frequent class)",
         }
-        assert [e["rank"] for e in body["entries"]] == [1, 2, 3, 4]
+        assert [e["rank"] for e in body["entries"]] == [1, 2, 3, 4, 5]
+
+    def test_the_baseline_reaches_the_api_labelled(self, completed_job):
+        """A client cannot tell the reference row from a contender without this."""
+        body = TestClient(app).get(f"/jobs/{completed_job}/leaderboard").json()
+        flagged = [e for e in body["entries"] if e["is_baseline"]]
+        assert [e["model_name"] for e in flagged] == ["Baseline (most frequent class)"]
 
     def test_the_winner_is_the_model_the_evaluation_describes(self, completed_job):
         """Two endpoints, one run -- they must not disagree about who won."""

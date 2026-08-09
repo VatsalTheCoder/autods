@@ -54,7 +54,8 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from lightgbm import LGBMClassifier, LGBMRegressor
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
+from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import KFold, StratifiedKFold, TimeSeriesSplit
@@ -71,6 +72,7 @@ from app.ml.contracts import (
     MetricSummary,
 )
 from app.ml.evaluation import PRIMARY_METRIC, fold_metrics
+from app.ml.target import TargetTransform, choose_target_transform
 
 logger = logging.getLogger(__name__)
 
@@ -90,22 +92,49 @@ _MIN_MINORITY_FOR_SMOTE = 6
 # cannot become a feature. The name is deliberately one no CSV would carry.
 _ORDER_KEY = "__autods_time_order__"
 
+# How much of a time column may be unreadable before ordering by it is abandoned
+# rather than repaired. Undated rows have no place in a chronological split (see
+# ``order_by_time``); below this fraction they are set aside and the score
+# describes the dated remainder, above it that remainder is no longer the
+# dataset and random folds over everything are the more honest answer.
+_MAX_TIME_COLUMN_NULL_RATE = 0.10
+
 
 class ModelingError(RuntimeError):
     """Cross-validation could not be run at all, with a reason for the user."""
 
 
-def order_by_time(frame: pd.DataFrame, time_column: str, warnings: list[str]) -> pd.DataFrame:
-    """Return ``frame`` sorted oldest-first by ``time_column``.
+def order_by_time(
+    frame: pd.DataFrame, time_column: str, warnings: list[str]
+) -> tuple[pd.DataFrame, bool]:
+    """Sort ``frame`` oldest-first by ``time_column``, or decline to.
+
+    Returns the frame and whether time ordering was actually applied. A ``False``
+    means the caller must fall back to its normal splitter: the frame handed back
+    is then the original, untouched.
 
     ``TimeSeriesSplit`` slices by *position*, so this has to happen before any
     splitting or the folds are ordered by whatever sequence the CSV arrived in --
     which would look time-aware in the report and be nothing of the sort.
 
     The sort is stable, so rows sharing a timestamp keep their original order
-    rather than being shuffled arbitrarily between folds. Unreadable values sort
-    last and are counted in a warning: dropping those rows would quietly change
-    the dataset, and putting them first would let them into every training fold.
+    rather than being shuffled arbitrarily between folds.
+
+    **Rows with no readable value are set aside, not sorted to one end.** All
+    three options are lossy and the least bad one is not obvious, so it is worth
+    saying why this is it. Sorting them last -- what this function used to do --
+    hands the final fold or two a validation set made entirely of undated rows,
+    which is a different population from anything the model trained on; the NYC
+    Airbnb listings dataset fails exactly this way, where a fifth of the rows have
+    no ``last_review`` and the last fold scores negative R² against a wall of
+    them. Sorting them first puts them in every training fold instead, which
+    hides the problem rather than removing it. Excluding them leaves a score that
+    can be described honestly -- it is the score over the rows that carry a date
+    -- and the count is warned about so the report never implies otherwise.
+
+    Past ``_MAX_TIME_COLUMN_NULL_RATE`` that description stops being worth much,
+    because the dated remainder is no longer the dataset the user uploaded. There
+    the whole idea is abandoned and the caller reverts to random folds.
 
     **A numeric column counts as a clock.** Plenty of real datasets carry time as
     a counter rather than a date -- an hour index, epoch seconds, a day number.
@@ -126,21 +155,39 @@ def order_by_time(frame: pd.DataFrame, time_column: str, warnings: list[str]) ->
         ordered = pd.to_datetime(column, errors="coerce")
         kind = "dates"
 
+    # A column with nothing readable in it is a wrong column, not a gappy one.
+    # The checkpoint already rejects a categorical or free-text choice, so
+    # reaching here means the choice cannot be repaired by setting rows aside --
+    # there would be none left. Refused loudly rather than quietly downgraded.
     if ordered.isna().all():
         raise ModelingError(
             f"Time column {time_column!r} holds no readable {kind}, so folds "
             "cannot be ordered by it."
         )
-    if ordered.isna().any():
+
+    missing = int(ordered.isna().sum())
+    if missing:
+        null_rate = missing / len(ordered)
+        if null_rate > _MAX_TIME_COLUMN_NULL_RATE:
+            warnings.append(
+                f"Folds were not ordered by time: {missing:,} of {len(ordered):,} rows "
+                f"({null_rate:.0%}) have no readable value in {time_column!r}. Ordering "
+                "would have scored whole folds against undated rows alone, so the run "
+                "used random folds over every row instead."
+            )
+            return frame, False
         warnings.append(
-            f"{int(ordered.isna().sum()):,} rows have no readable value in "
-            f"{time_column!r}; they were ordered last."
+            f"{missing:,} rows have no readable value in {time_column!r} and were left "
+            "out of cross-validation; scores describe the rows that carry a value."
         )
+        frame = frame.loc[ordered.notna()]
+        ordered = ordered.loc[ordered.notna()]
 
     return (
         frame.assign(**{_ORDER_KEY: ordered})
-        .sort_values(_ORDER_KEY, kind="stable", na_position="last")
-        .drop(columns=[_ORDER_KEY])
+        .sort_values(_ORDER_KEY, kind="stable")
+        .drop(columns=[_ORDER_KEY]),
+        True,
     )
 
 
@@ -150,6 +197,9 @@ class Candidate:
 
     name: str
     estimator: object
+    # A baseline is scored and ranked alongside the contenders but is never the
+    # model that gets served -- see ``run_leaderboard``.
+    is_baseline: bool = False
 
 
 class LabelEncodedClassifier(BaseEstimator, ClassifierMixin):
@@ -203,6 +253,10 @@ class CrossValidationResult:
     n_features: int
     pipeline_template: ImbPipeline
     warnings: list[str] = field(default_factory=list)
+    # The log-scale treatment, when the target's skew called for one. Carried
+    # here so the report can say the models were fitted on a transformed target
+    # -- the scores themselves are already back in the original units.
+    target_transform: TargetTransform | None = None
 
 
 def build_estimator(task_type: TaskType, *, random_seed: int):
@@ -228,6 +282,19 @@ def build_roster(task_type: TaskType, *, random_seed: int) -> list[Candidate]:
     The linear model is in the roster as a baseline as much as a contender: if a
     logistic regression matches the gradient-boosted trees, the honest reading is
     that the problem is linear and the ensembles are buying nothing.
+
+    **And below all of them, a model that does not look at the features at all.**
+    A leaderboard without one gives a reader no way to tell a mediocre score from
+    a meaningless one: R² 0.07 reads as a catastrophe and macro F1 0.62 reads as
+    respectable, and neither impression survives learning what predicting the
+    same answer every time would have scored. It is one extra fit per fold of a
+    model with no parameters, which is the cheapest row on the board.
+
+    ``median`` rather than ``mean`` for the regression baseline. R² is *defined*
+    against the mean, so a mean-predictor scores 0.000 by construction and the
+    row tells the reader nothing they did not already know from the metric's
+    definition. The median predictor scores slightly below zero, and its MAE is
+    the number that actually matters: the error you get for free.
     """
     seed = random_seed
     if task_type == "classification":
@@ -254,6 +321,11 @@ def build_roster(task_type: TaskType, *, random_seed: int) -> list[Candidate]:
                 "LightGBM",
                 LGBMClassifier(n_estimators=_N_ESTIMATORS, random_state=seed, verbose=-1),
             ),
+            Candidate(
+                "Baseline (most frequent class)",
+                DummyClassifier(strategy="most_frequent"),
+                is_baseline=True,
+            ),
         ]
     return [
         Candidate("RandomForest", RandomForestRegressor(_N_ESTIMATORS, random_state=seed)),
@@ -263,6 +335,11 @@ def build_roster(task_type: TaskType, *, random_seed: int) -> list[Candidate]:
         ),
         Candidate(
             "LightGBM", LGBMRegressor(n_estimators=_N_ESTIMATORS, random_state=seed, verbose=-1)
+        ),
+        Candidate(
+            "Baseline (always the median)",
+            DummyRegressor(strategy="median"),
+            is_baseline=True,
         ),
     ]
 
@@ -274,6 +351,7 @@ def build_pipeline(
     random_seed: int,
     estimator=None,
     resampler=None,
+    target_transform: TargetTransform | None = None,
 ):
     """Glue the unfitted recipe, an optional resampler and the estimator together.
 
@@ -292,6 +370,11 @@ def build_pipeline(
     catches each candidate's failure individually, the symptom is every model in
     the roster failing for the same opaque reason. Flattening keeps the step
     order, and so the leakage property, exactly as it was.
+
+    **A target transform wraps the estimator rather than becoming a step**, since
+    a pipeline step transforms ``X`` and this one transforms ``y``. Wrapping keeps
+    it inside the object cloned per fold, so the log is taken and undone within
+    the fold like everything else (``target.py``).
     """
     steps: list[tuple[str, object]] = []
     if isinstance(preprocessor, SklearnPipeline):
@@ -300,15 +383,37 @@ def build_pipeline(
         steps.append(("preprocess", preprocessor))
     if resampler is not None:
         steps.append(("resample", resampler))
-    steps.append(
-        (
-            "model",
-            estimator
-            if estimator is not None
-            else build_estimator(task_type, random_seed=random_seed),
-        )
+    model = (
+        estimator if estimator is not None else build_estimator(task_type, random_seed=random_seed)
     )
+    if target_transform is not None:
+        model = target_transform.wrap(model)
+    steps.append(("model", model))
     return ImbPipeline(steps=steps)
+
+
+def unwrap_estimator(model):
+    """The estimator underneath any wrappers this module puts around one.
+
+    Two wrappers exist, for unrelated reasons -- ``LabelEncodedClassifier`` so
+    XGBoost can be handed integer labels, and ``TransformedTargetRegressor`` so a
+    skewed target can be modelled on a log scale (``target.py``). Anything that
+    wants the real model, to name its family or to hand it to SHAP, wants this
+    rather than ``named_steps["model"]``.
+
+    Fitted and unfitted pipelines both work: scikit-learn parks the fitted inner
+    estimator on a trailing-underscore attribute and leaves the constructor
+    argument in place, so each is tried in turn. Applied repeatedly, because the
+    two wrappers can legitimately nest.
+    """
+    for _ in range(4):  # more nesting than exists; a guard against a cycle
+        if isinstance(model, LabelEncodedClassifier):
+            model = getattr(model, "estimator_", None) or model.estimator
+        elif isinstance(model, TransformedTargetRegressor):
+            model = getattr(model, "regressor_", None) or model.regressor
+        else:
+            return model
+    return model
 
 
 def preprocessing_of(pipeline: ImbPipeline):
@@ -407,9 +512,11 @@ def cross_validate_model(
     # checkpoint. TimeSeriesSplit slices by *position*, so the rows have to be in
     # time order before it sees them or the split means nothing at all -- it
     # would happily "validate on the future" using whatever order the CSV
-    # happened to arrive in.
+    # happened to arrive in. ``order_by_time`` may decline, in which case the
+    # ordinary splitter below is the correct one and says so in the report.
+    time_ordered = False
     if time_column:
-        frame = order_by_time(frame, time_column, warnings)
+        frame, time_ordered = order_by_time(frame, time_column, warnings)
 
     X = frame[features]
     y = frame[target]
@@ -421,10 +528,17 @@ def cross_validate_model(
             cv_folds=cv_folds,
             random_seed=random_seed,
             warnings=warnings,
-            time_ordered=bool(time_column),
+            time_ordered=time_ordered,
         )
     else:
         n_folds, strategy = splitter.get_n_splits(), type(splitter).__name__
+
+    # Decided here rather than passed in, and safe to decide twice: it is a pure
+    # function of the target column, so the leaderboard's copy (recorded for the
+    # report) and this one cannot disagree about the same rows.
+    transform = choose_target_transform(y, task_type=task_type)
+    if transform is not None and transform.rationale not in warnings:
+        warnings.append(transform.rationale)
 
     template = build_pipeline(
         preprocessor,
@@ -432,6 +546,7 @@ def cross_validate_model(
         random_seed=random_seed,
         estimator=candidate.estimator if candidate else None,
         resampler=resampler,
+        target_transform=transform,
     )
 
     folds: list[FoldScore] = []
@@ -478,13 +593,18 @@ def cross_validate_model(
 
     return CrossValidationResult(
         folds=folds,
-        model_name=candidate.name if candidate else type(template.named_steps["model"]).__name__,
+        model_name=(
+            candidate.name
+            if candidate
+            else type(unwrap_estimator(template.named_steps["model"])).__name__
+        ),
         cv_strategy=strategy,
         n_folds=n_folds,
         n_rows=int(frame.shape[0]),
         n_features=len(features),
         pipeline_template=template,
         warnings=warnings,
+        target_transform=transform,
     )
 
 
@@ -525,8 +645,9 @@ def run_leaderboard(
     # Ordered before the splitter is built, not after: the empty-fold check below
     # inspects which rows land in which fold, and on an unordered frame it would
     # be inspecting the wrong ones.
+    time_ordered = False
     if time_column:
-        frame = order_by_time(frame, time_column, warnings)
+        frame, time_ordered = order_by_time(frame, time_column, warnings)
 
     y = frame[target]
     n_folds, splitter, strategy = _make_splitter(
@@ -535,8 +656,15 @@ def run_leaderboard(
         cv_folds=cv_folds,
         random_seed=random_seed,
         warnings=warnings,
-        time_ordered=bool(time_column),
+        time_ordered=time_ordered,
     )
+
+    # Every candidate gets the same treatment of the target, for the same reason
+    # they get the same splits: a roster where one model was fitted on log dollars
+    # and another on dollars is not a comparison.
+    transform = choose_target_transform(y, task_type=task_type)
+    if transform is not None:
+        warnings.append(transform.rationale)
 
     resampler = None
     resampling = "none"
@@ -549,7 +677,7 @@ def run_leaderboard(
         )
 
     primary = PRIMARY_METRIC.get(task_type, "")
-    scored: list[tuple[LeaderboardEntry, CrossValidationResult | None]] = []
+    scored: list[tuple[LeaderboardEntry, CrossValidationResult | None, bool]] = []
 
     for candidate in build_roster(task_type, random_seed=random_seed):
         started = time.perf_counter()
@@ -576,8 +704,10 @@ def run_leaderboard(
                         score=float("nan"),
                         std=0.0,
                         error=str(exc),
+                        is_baseline=candidate.is_baseline,
                     ),
                     None,
+                    candidate.is_baseline,
                 )
             )
             continue
@@ -594,23 +724,37 @@ def run_leaderboard(
                     std=summary[primary].std if primary in summary else 0.0,
                     metrics=summary,
                     fit_seconds=round(time.perf_counter() - started, 2),
+                    is_baseline=candidate.is_baseline,
                 ),
                 result,
+                candidate.is_baseline,
             )
         )
 
     # Higher is better for every primary metric in use (macro F1, R²). Failed
     # candidates sort last on their NaN score rather than being interleaved.
-    scored.sort(key=lambda pair: (pair[0].error != "", -_sortable(pair[0].score)))
-    for rank, (entry, _) in enumerate(scored, start=1):
+    #
+    # The baseline sorts on its score like everything else rather than being
+    # pinned to the bottom: where it lands *is* the information. A board whose
+    # top row predicts the same answer every time has said something no other
+    # arrangement of the same numbers would have.
+    scored.sort(key=lambda row: (row[0].error != "", -_sortable(row[0].score)))
+    for rank, (entry, _, _) in enumerate(scored, start=1):
         entry.rank = rank
 
-    winner = next((result for entry, result in scored if result is not None), None)
+    # The served model is the best *real* one. A no-information model that
+    # happens to top the board is a finding to report, not an artifact to deploy
+    # -- and SHAP cannot explain an estimator that never looked at a feature.
+    winner = next(
+        (result for _, result, baseline in scored if result is not None and not baseline), None
+    )
     if winner is None:
         raise ModelingError(
             "No model could be trained on this dataset. "
-            + "; ".join(entry.error for entry, _ in scored if entry.error)
+            + "; ".join(entry.error for entry, _, _ in scored if entry.error)
         )
+
+    warnings.extend(_baseline_verdict(scored, primary=primary))
 
     leaderboard = Leaderboard(
         task_type=task_type,
@@ -618,7 +762,7 @@ def run_leaderboard(
         primary_metric=primary,
         n_folds=n_folds,
         cv_strategy=strategy,
-        entries=[entry for entry, _ in scored],
+        entries=[entry for entry, _, _ in scored],
         resampling=resampling,
         warnings=warnings,
     )
@@ -635,6 +779,49 @@ def run_leaderboard(
 def _sortable(score: float) -> float:
     """NaN sorts as the worst possible score rather than poisoning the order."""
     return -float("inf") if score != score else score
+
+
+def _baseline_verdict(
+    scored: list[tuple[LeaderboardEntry, CrossValidationResult | None, bool]],
+    *,
+    primary: str,
+) -> list[str]:
+    """Say what the featureless baseline proved, in the two cases where it matters.
+
+    Reading a score is guesswork without this. R² 0.07 on listing prices sounds
+    like nothing at all, and it is in fact a real improvement on the 0.00 a
+    median-predictor gets; macro F1 0.62 sounds respectable and can be *worse*
+    than always answering with the commonest class. Only the comparison
+    distinguishes them, so the comparison is stated rather than left as two
+    numbers a reader has to subtract.
+
+    Silent when nothing interesting happened -- a baseline comfortably beaten is
+    the expected outcome and needs no paragraph.
+    """
+    baseline = next((entry for entry, _, is_base in scored if is_base), None)
+    best = next((entry for entry, _, is_base in scored if not is_base and not entry.error), None)
+    if baseline is None or best is None or baseline.error:
+        return []
+
+    gap = best.score - baseline.score
+    if gap <= 0:
+        return [
+            f"No model beat the featureless baseline: the best {primary} was "
+            f"{best.score:.4f} ({best.model_name}) against {baseline.score:.4f} for "
+            f"{baseline.model_name.lower()}. The features carry little or no signal "
+            "about this target, and the ranking above is between models that are all "
+            "failing at the same task."
+        ]
+    # A lead this thin is not a lead. The threshold is one fold's worth of
+    # spread: if the winner's advantage over the baseline is inside the noise
+    # that separates its own folds, the advantage is not established.
+    if gap < best.std:
+        return [
+            f"The best model beats the featureless baseline by only {gap:.4f} on "
+            f"{primary}, which is less than its own spread across folds "
+            f"(±{best.std:.4f}). Treat the improvement as unproven rather than small."
+        ]
+    return []
 
 
 def _summarise_folds(folds: list[FoldScore]) -> dict[str, MetricSummary]:

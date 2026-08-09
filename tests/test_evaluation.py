@@ -127,8 +127,64 @@ class TestRegressionMetrics:
         metrics, warnings = fold_metrics(
             y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
         )
-        assert set(metrics) == {"mae", "mse", "rmse", "r2"}
+        # The spec's four, plus the two that describe a *typical* error rather
+        # than a squared-error-dominated one.
+        assert set(metrics) == {"mae", "mse", "rmse", "r2", "median_ae", "mape"}
         assert warnings == []
+
+    def test_the_typical_error_is_reported_beside_the_mean_one(self):
+        """One large miss among small ones must move MAE and not the median."""
+        y_true = np.array([10.0, 20.0, 30.0, 40.0, 50.0])
+        y_pred = np.array([11.0, 21.0, 29.0, 41.0, 500.0])
+        metrics, _ = fold_metrics(
+            y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
+        )
+        assert metrics["median_ae"] == 1.0
+        assert metrics["mae"] > 50
+
+    def test_mape_is_a_ratio_of_the_true_value(self):
+        y_true = np.array([100.0, 200.0, 400.0])
+        y_pred = np.array([110.0, 180.0, 440.0])  # 10%, 10%, 10%
+        metrics, _ = fold_metrics(
+            y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
+        )
+        assert metrics["mape"] == pytest.approx(0.10)
+
+    def test_a_zero_true_value_is_excluded_from_mape_and_reported(self):
+        """scikit-learn's own MAPE substitutes an epsilon and returns billions."""
+        y_true = np.array([0.0, 100.0, 200.0])
+        y_pred = np.array([5.0, 110.0, 180.0])
+        metrics, warnings = fold_metrics(
+            y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
+        )
+        assert metrics["mape"] == pytest.approx(0.10)
+        assert any("percentage of zero is undefined" in w for w in warnings)
+        # Every other metric still covers the zero row.
+        assert metrics["mae"] == pytest.approx((5 + 10 + 20) / 3)
+
+    def test_the_zero_value_caveat_is_worded_so_folds_deduplicate_it(self):
+        """Otherwise the report grows one near-identical caveat per fold."""
+        seen = set()
+        for n_zeros in (1, 2, 3):
+            y_true = np.array([0.0] * n_zeros + [100.0, 200.0])
+            _, warnings = fold_metrics(
+                y_true=y_true,
+                y_pred=np.ones_like(y_true),
+                y_proba=None,
+                classes=[],
+                task_type="regression",
+            )
+            seen.update(warnings)
+        assert len(seen) == 1, seen
+
+    def test_an_all_zero_target_omits_mape_rather_than_inventing_it(self):
+        y_true = np.zeros(4)
+        y_pred = np.array([1.0, 2.0, 3.0, 4.0])
+        metrics, warnings = fold_metrics(
+            y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
+        )
+        assert "mape" not in metrics
+        assert any("every held-out target value was zero" in w for w in warnings)
 
     def test_rmse_is_the_root_of_mse(self):
         y_true = np.array([10.0, 20.0, 30.0, 40.0])

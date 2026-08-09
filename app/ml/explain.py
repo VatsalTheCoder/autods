@@ -65,7 +65,7 @@ from app.ml.contracts import (
     LocalContribution,
     LocalExplanation,
 )
-from app.ml.modeling import LabelEncodedClassifier, preprocessing_of
+from app.ml.modeling import preprocessing_of, unwrap_estimator
 from app.ml.plots import Chart, render_shap_charts
 from app.ml.sampling import sample_frame
 
@@ -187,14 +187,19 @@ def _longest_source(encoded: str, sources: list[str]) -> str:
 def _unwrap(model):
     """The estimator SHAP can actually read.
 
-    ``LabelEncodedClassifier`` exists so XGBoost can be given integer labels
-    (``modeling.py``); ``TreeExplainer`` sees a class it does not recognise and
-    refuses it. The wrapper keeps the fitted booster on ``estimator_``, so
-    unwrapping here is enough and the wrapper needs no SHAP-specific code.
+    ``LabelEncodedClassifier`` exists so XGBoost can be given integer labels, and
+    ``TransformedTargetRegressor`` so a skewed target can be fitted on a log
+    scale (``modeling.py``, ``target.py``); ``TreeExplainer`` sees either class,
+    does not recognise it, and refuses. Both park the real estimator on an
+    attribute, which is what ``unwrap_estimator`` knows about -- so neither
+    wrapper needs SHAP-specific code of its own.
+
+    One consequence is worth stating, since it changes how a chart reads: under a
+    log target the SHAP values are contributions to *log* target, so their
+    ordering and relative sizes are meaningful but their units are not the user's.
+    ``explain_model`` says so in the report rather than leaving it implied.
     """
-    if isinstance(model, LabelEncodedClassifier):
-        return model.estimator_
-    return model
+    return unwrap_estimator(model)
 
 
 def _build_explainer(model, background: np.ndarray):

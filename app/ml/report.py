@@ -333,7 +333,63 @@ def _metrics_table(evaluation: EvaluationReport) -> str:
     ]
     for name, summary in evaluation.metrics.items():
         lines.append(f"| {_label(name)} | {_fmt(name, summary.mean)} | {_fmt(name, summary.std)} |")
+    reading = _error_shape_note(evaluation)
+    if reading:
+        lines += ["", reading]
     return "\n".join(lines)
+
+
+# How far RMSE may exceed MAE before the error is concentrated rather than
+# spread. The two are equal when every error is the same size and RMSE grows as
+# they become uneven; 1.5 is comfortably past the ratio a well-behaved residual
+# distribution produces and short of flagging ordinary noise.
+_TAIL_DOMINATED_RATIO = 1.5
+
+
+def _error_shape_note(evaluation: EvaluationReport) -> str:
+    """Read the regression metrics against each other, rather than listing them.
+
+    Two comparisons the table contains but does not make. RMSE far above MAE
+    means a few rows own most of the error, which is the difference between a
+    model that is uniformly mediocre and one that is usually fine and
+    occasionally very wrong -- and they call for opposite responses. MAE far
+    above the median error says the same thing from the other direction.
+
+    Worth spelling out because the run this was written for reported RMSE 202
+    against MAE 81 and left the reader to notice.
+    """
+    if evaluation.task_type != "regression":
+        return ""
+    metrics = evaluation.metrics
+    mae = metrics.get("mae")
+    rmse = metrics.get("rmse")
+    if mae is None or rmse is None or mae.mean <= 0:
+        return ""
+
+    ratio = rmse.mean / mae.mean
+    if ratio < _TAIL_DOMINATED_RATIO:
+        note = (
+            f"RMSE ({_fmt('rmse', rmse.mean)}) is close to MAE ({_fmt('mae', mae.mean)}), "
+            "so the model's errors are of a similar size throughout -- there is no "
+            "small group of rows carrying most of them."
+        )
+    else:
+        note = (
+            f"**RMSE is {ratio:.1f}x MAE.** RMSE squares each error before averaging, so a "
+            "gap this size means a minority of rows account for most of the total error "
+            "while typical predictions are considerably better than RMSE suggests. R² "
+            "inherits the same bias -- it is a squared-error measure -- so a low R² here "
+            "describes the extremes more than the ordinary case."
+        )
+
+    median_ae = metrics.get("median_ae")
+    if median_ae is not None and median_ae.mean > 0 and mae.mean / median_ae.mean >= 1.5:
+        note += (
+            f" The median error is {_fmt('median_ae', median_ae.mean)} against a mean of "
+            f"{_fmt('mae', mae.mean)}, which is the same imbalance seen directly: half of "
+            "all predictions are within the smaller figure."
+        )
+    return note
 
 
 def _folds_table(evaluation: EvaluationReport) -> str:
@@ -500,6 +556,16 @@ def _data_quality(cleaning: CleaningReport) -> str:
         lines.append(
             f"- Removed {_count(cleaning.missing_target_rows_removed, 'row')} with no target value"
         )
+    if cleaning.non_finite_target_rows_removed:
+        lines.append(
+            f"- Removed {_count(cleaning.non_finite_target_rows_removed, 'row')} whose target "
+            "was infinite, which would have made every error metric infinite too"
+        )
+    # Stated whether or not anything was removed. A reader looking at a poor
+    # squared-error score is owed the size of the target's tail either way --
+    # kept, it explains the score; removed, it qualifies it.
+    if cleaning.target_outliers is not None:
+        lines.append(f"- {cleaning.target_outliers.note}")
     if cleaning.dtype_corrections:
         lines.append("- Corrected column types:")
         lines.extend(
@@ -530,6 +596,10 @@ def _leaderboard_table(leaderboard: Leaderboard | None) -> str:
     The spread is in the table rather than a footnote because it is what decides
     whether the ranking is worth acting on: a 0.02 lead between two models whose
     folds swing 0.09 is not a lead, and a table of means alone hides that.
+
+    The last row is usually the featureless baseline, marked as such. It is the
+    reference the other numbers are read against -- without it, a score is a
+    number with no scale attached.
     """
     if leaderboard is None or not leaderboard.entries:
         return ""
@@ -542,11 +612,12 @@ def _leaderboard_table(leaderboard: Leaderboard | None) -> str:
         "| --- | --- | --- | --- | --- |",
     ]
     for entry in leaderboard.entries:
+        name = f"{entry.model_name} *(baseline)*" if entry.is_baseline else entry.model_name
         if entry.error:
-            lines.append(f"| {entry.rank} | {entry.model_name} | — | — | could not be trained |")
+            lines.append(f"| {entry.rank} | {name} | — | — | could not be trained |")
             continue
         lines.append(
-            f"| {entry.rank} | {entry.model_name} | {entry.score:.3f} | "
+            f"| {entry.rank} | {name} | {entry.score:.3f} | "
             f"± {entry.std:.3f} | {entry.fit_seconds:.1f}s |"
         )
 
@@ -555,6 +626,13 @@ def _leaderboard_table(leaderboard: Leaderboard | None) -> str:
         f"All {len(leaderboard.entries)} models were scored on the same "
         f"{leaderboard.n_folds} folds, so the ranking compares like with like."
     )
+    if any(e.is_baseline for e in leaderboard.entries):
+        lines.append(
+            "The baseline ignores every feature and always predicts the same answer. "
+            "It is there to show what the other scores are worth: a model that cannot "
+            "beat it has learned nothing from the data, whatever its score looks like "
+            "in isolation. It is never the model that gets served."
+        )
     if leaderboard.resampling != "none":
         lines.append(f"Class balancing: {leaderboard.resampling}.")
     return "\n".join(lines)
@@ -676,6 +754,8 @@ def _label(metric: str) -> str:
         "roc_auc": "ROC-AUC",
         "pr_auc": "PR-AUC",
         "mae": "MAE",
+        "median_ae": "Median absolute error",
+        "mape": "MAPE",
         "mse": "MSE",
         "rmse": "RMSE",
         "r2": "R²",
@@ -687,8 +767,11 @@ def _fmt(metric: str, value: float) -> str:
 
     Proportions get four decimals; regression errors are in the target's own
     units and can be enormous, so those get thousands separators instead of a
-    long decimal tail nobody reads.
+    long decimal tail nobody reads. MAPE is a ratio and is shown as the
+    percentage it is, because "0.4312" invites being read as an error of 0.43.
     """
+    if metric == "mape":
+        return f"{value * 100:,.1f}%"
     if metric in _PROPORTION_METRICS or abs(value) < 1000:
         return f"{value:.4f}"
     return f"{value:,.2f}"
