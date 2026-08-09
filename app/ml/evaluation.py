@@ -22,6 +22,11 @@ Two choices worth stating plainly, because they change how a number reads:
   reported as zero. ROC-AUC needs both classes present in the held-out fold; on
   a tiny or badly skewed dataset that can fail. A missing number with a stated
   reason is honest, a zero is a lie about the model's performance.
+
+The regression set has since gained two more, median absolute error and MAPE,
+for a reason worth stating up front: the spec's four are all absolute or squared
+and therefore all describe the same thing on a heavy-tailed target -- its tail.
+See ``_regression_metrics``.
 """
 
 from __future__ import annotations
@@ -124,16 +129,59 @@ def _classification_metrics(
 
 
 def _regression_metrics(y_true: Any, y_pred: Any) -> tuple[dict[str, float], list[str]]:
+    """MAE, MSE, RMSE and R² -- plus two the spec's four cannot express.
+
+    All four of the originals are absolute and squared-error-dominated, which on
+    a heavy-tailed target means all four describe the tail. A run on listing
+    prices reported RMSE 202 against MAE 81 and R² 0.07, and there was no number
+    anywhere in the report that let a reader work out whether a typical
+    prediction was any good.
+
+    * **Median absolute error** is the typical miss. Where MAE is pulled upward
+      by a handful of large errors, this is not, so the gap between the two is
+      itself the diagnosis.
+    * **MAPE** puts the error on the target's own scale. "Out by 81" means
+      nothing without knowing that the median listing costs 106; "out by 43%"
+      means something on its own.
+
+    Neither replaces R², which stays the primary metric -- they sit alongside it.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    errors = np.abs(y_true - y_pred)
+
     mse = float(mean_squared_error(y_true, y_pred))
-    return (
-        {
-            "mae": float(mean_absolute_error(y_true, y_pred)),
-            "mse": mse,
-            "rmse": math.sqrt(mse),
-            "r2": float(r2_score(y_true, y_pred)),
-        },
-        [],
-    )
+    metrics = {
+        "mae": float(mean_absolute_error(y_true, y_pred)),
+        "median_ae": float(np.median(errors)),
+        "mse": mse,
+        "rmse": math.sqrt(mse),
+        "r2": float(r2_score(y_true, y_pred)),
+    }
+
+    warnings: list[str] = []
+    # A percentage of zero is not a large error, it is an undefined one, and
+    # scikit-learn's own MAPE quietly substitutes an epsilon that turns a single
+    # zero row into a value in the billions. Those rows are excluded and counted
+    # instead -- a percentage over 99% of the data, honestly labelled, beats a
+    # meaningless number over all of it.
+    usable = y_true != 0
+    if usable.any():
+        metrics["mape"] = float(np.mean(errors[usable] / np.abs(y_true[usable])))
+        if not usable.all():
+            # Deliberately without the row count. This runs per fold, and each
+            # fold holds a different number of zero-valued rows, so a counted
+            # message defeats the caller's deduplication and the report grows one
+            # near-identical caveat per fold. The qualification is what matters;
+            # the exact count per fold is not something a reader can act on.
+            warnings.append(
+                "MAPE excludes held-out rows whose true value is zero, since a "
+                "percentage of zero is undefined. Every other metric covers them."
+            )
+    else:
+        warnings.append("MAPE could not be computed: every held-out target value was zero.")
+
+    return metrics, warnings
 
 
 def _try_metric(

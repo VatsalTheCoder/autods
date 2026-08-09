@@ -75,7 +75,7 @@ class TestTheGapsSectionSevenCloses:
     def test_high_cardinality_text_now_gets_a_branch(self):
         frame = pd.DataFrame(
             {
-                "note": [f"free text {i}" for i in range(60)],
+                "note": [f"free text {i % 52}" for i in range(60)],
                 "age": np.arange(60),
                 "churn": ["yes", "no"] * 30,
             }
@@ -96,7 +96,9 @@ class TestTheGapsSectionSevenCloses:
         assert np.isfinite(out).all()
 
     def test_text_encoding_adds_one_column_not_hundreds(self):
-        frame = pd.DataFrame({"note": [f"n{i}" for i in range(60)], "churn": ["yes", "no"] * 30})
+        frame = pd.DataFrame(
+            {"note": [f"n{i % 52}" for i in range(60)], "churn": ["yes", "no"] * 30}
+        )
         transformer = build_preprocessor(frame, target="churn").transformer
         out = transformer.fit_transform(frame.drop(columns=["churn"]))
         assert out.shape[1] == 1

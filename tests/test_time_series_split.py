@@ -51,35 +51,33 @@ def _run(frame: pd.DataFrame, **kwargs):
     )
 
 
+def _undate(frame: pd.DataFrame, n: int) -> pd.DataFrame:
+    """Make ``n`` of the frame's dates unreadable, as a CSV would deliver them.
+
+    As strings, because a ``datetime64`` column cannot hold the bad values that
+    make this case exist in the first place.
+    """
+    frame = frame.copy()
+    frame["day"] = frame["day"].dt.strftime("%Y-%m-%d")
+    frame.loc[frame.index[:n], "day"] = "not a date"
+    return frame
+
+
 class TestOrdering:
     def test_rows_come_back_oldest_first(self, timed_frame):
-        ordered = order_by_time(timed_frame, "day", [])
+        ordered, applied = order_by_time(timed_frame, "day", [])
+        assert applied
         assert ordered["day"].is_monotonic_increasing
 
     def test_the_sort_key_is_not_left_behind(self, timed_frame):
         """A scratch column reaching the recipe would become a feature."""
-        ordered = order_by_time(timed_frame, "day", [])
+        ordered, _ = order_by_time(timed_frame, "day", [])
         assert list(ordered.columns) == list(timed_frame.columns)
 
     def test_no_rows_are_gained_or_lost(self, timed_frame):
-        ordered = order_by_time(timed_frame, "day", [])
+        ordered, _ = order_by_time(timed_frame, "day", [])
         assert len(ordered) == len(timed_frame)
         assert sorted(ordered["x"].tolist()) == sorted(timed_frame["x"].tolist())
-
-    def test_unreadable_dates_sort_last_and_are_reported(self, timed_frame):
-        """Dropping them would change the dataset; putting them first would put
-        them in every training fold."""
-        # As strings, which is how they arrive from a CSV -- a datetime64 column
-        # cannot hold the bad values that make this case exist in the first place.
-        frame = timed_frame.copy()
-        frame["day"] = frame["day"].dt.strftime("%Y-%m-%d")
-        frame.loc[frame.index[:3], "day"] = "not a date"
-        warnings: list[str] = []
-
-        ordered = order_by_time(frame, "day", warnings)
-
-        assert pd.to_datetime(ordered["day"], errors="coerce").tail(3).isna().all()
-        assert any("3 rows" in w for w in warnings)
 
     def test_a_column_with_no_dates_at_all_is_refused(self, timed_frame):
         frame = timed_frame.assign(day="not a date")
@@ -89,6 +87,57 @@ class TestOrdering:
     def test_a_missing_column_is_refused(self, timed_frame):
         with pytest.raises(ModelingError, match="not in the dataset"):
             order_by_time(timed_frame, "nope", [])
+
+
+class TestUndatedRowsAreSetAsideNotSortedToOneEnd:
+    """The defect this class exists for.
+
+    Undated rows used to sort last, which handed the final fold a validation set
+    made entirely of them -- a different population from anything trained on. NYC
+    Airbnb is the case that showed it: a fifth of the listings have no
+    ``last_review`` and the last fold scored negative R² against a wall of them.
+    """
+
+    def test_they_are_left_out_of_the_ordering_and_counted(self, timed_frame):
+        warnings: list[str] = []
+
+        ordered, applied = order_by_time(_undate(timed_frame, 3), "day", warnings)
+
+        assert applied
+        assert len(ordered) == N_ROWS - 3
+        assert pd.to_datetime(ordered["day"], errors="coerce").notna().all()
+        assert any("3 rows" in w and "left out" in w for w in warnings), warnings
+
+    def test_no_undated_row_survives_at_either_end(self, timed_frame):
+        """Sorting them first would be the same bug pointed the other way."""
+        ordered, _ = order_by_time(_undate(timed_frame, 3), "day", [])
+        parsed = pd.to_datetime(ordered["day"], errors="coerce")
+        assert parsed.is_monotonic_increasing
+        assert not parsed.head(3).isna().any()
+
+    def test_too_many_undated_rows_abandons_time_ordering_entirely(self, timed_frame):
+        """Past the threshold the dated remainder is no longer the dataset."""
+        warnings: list[str] = []
+        frame = _undate(timed_frame, 20)  # a third of 60, well past 10%
+
+        ordered, applied = order_by_time(frame, "day", warnings)
+
+        assert not applied
+        assert len(ordered) == N_ROWS, "the caller's rows must all still be there"
+        assert any("not ordered by time" in w and "33%" in w for w in warnings), warnings
+
+    def test_the_run_falls_back_to_random_folds_and_says_so(self, timed_frame):
+        result = _run(_undate(timed_frame, 20), time_column="day")
+
+        assert result.cv_strategy == "StratifiedKFold"
+        assert result.n_rows == N_ROWS
+        assert any("not ordered by time" in w for w in result.warnings), result.warnings
+
+    def test_a_few_undated_rows_still_get_time_ordered_folds(self, timed_frame):
+        result = _run(_undate(timed_frame, 3), time_column="day")
+
+        assert result.cv_strategy == "TimeSeriesSplit"
+        assert result.n_rows == N_ROWS - 3
 
 
 class TestTheGuarantee:
@@ -101,7 +150,7 @@ class TestTheGuarantee:
         """
         from sklearn.model_selection import TimeSeriesSplit
 
-        ordered = order_by_time(timed_frame, "day", [])
+        ordered, _ = order_by_time(timed_frame, "day", [])
         days = ordered["day"].to_numpy()
 
         for train_idx, test_idx in TimeSeriesSplit(n_splits=4).split(ordered):
@@ -173,12 +222,12 @@ class TestATimeColumnThatCountsRatherThanDates:
         return frame.sample(frac=1.0, random_state=9).reset_index(drop=True)
 
     def test_rows_come_back_in_counter_order(self, counted_frame):
-        ordered = order_by_time(counted_frame, "step", [])
+        ordered, _ = order_by_time(counted_frame, "step", [])
         assert ordered["step"].is_monotonic_increasing
 
     def test_a_counter_is_not_read_as_nanoseconds_since_the_epoch(self, counted_frame):
         """Parsing 0..59 as dates would 'work' and mean nothing."""
-        ordered = order_by_time(counted_frame, "step", [])
+        ordered, _ = order_by_time(counted_frame, "step", [])
         assert ordered["step"].tolist() == list(range(N_ROWS))
 
     def test_the_run_uses_time_ordered_folds(self, counted_frame):

@@ -82,6 +82,18 @@ class PlannerPlan(BaseModel):
         description="Train on a random subset because the dataset is very large.",
     )
 
+    # Regression only, and off by default: removing rows changes what is being
+    # predicted, which is the user's question to answer rather than a default to
+    # assume. Bounded by construction to the outermost half-percent at each end
+    # (``cleaning.py``), so an over-eager plan cannot delete a real population.
+    trim_target_outliers: bool = Field(
+        default=False,
+        description=(
+            "Drop rows whose numeric target sits in the extreme tail, when those "
+            "values look like data-entry artefacts rather than genuine records."
+        ),
+    )
+
     rationale: str = Field(default="", description="One or two sentences on why.")
 
     # Whether the LLM was actually consulted. The pipeline runs identically
@@ -104,6 +116,28 @@ class DtypeCorrection(BaseModel):
     to_dtype: str
 
 
+class TargetOutliers(BaseModel):
+    """The extreme tail of a numeric target, measured whether or not it was cut.
+
+    Reported even when nothing was removed, because "1,044 listings priced above
+    $500, against a median of $106" is the single most useful sentence a reader
+    of a mediocre regression score can be given. Silence there is what leaves
+    someone staring at R² 0.07 with no idea that a few hundred rows own most of
+    the error.
+    """
+
+    column: str
+    n_detected: int = 0
+    n_removed: int = 0
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    # What the tail is extreme *relative to*, so the bounds can be read without
+    # the dataset to hand.
+    median: float | None = None
+    maximum: float | None = None
+    note: str = ""
+
+
 class CleaningReport(BaseModel):
     """What cleaning did, in numbers a reader can check against the dataset."""
 
@@ -114,8 +148,10 @@ class CleaningReport(BaseModel):
 
     duplicate_rows_removed: int = 0
     missing_target_rows_removed: int = 0
+    non_finite_target_rows_removed: int = 0
     dropped_columns: list[DroppedColumn] = Field(default_factory=list)
     dtype_corrections: list[DtypeCorrection] = Field(default_factory=list)
+    target_outliers: TargetOutliers | None = None
 
     # Missing values still present when cleaning finishes -- on purpose, and the
     # single most important thing this report communicates. Filling them here
@@ -319,6 +355,11 @@ class LeaderboardEntry(BaseModel):
     std: float
     metrics: dict[str, MetricSummary] = Field(default_factory=dict)
     fit_seconds: float = 0.0
+
+    # A model that ignores the features entirely, included so a reader can tell a
+    # mediocre score from a meaningless one. Ranked with everything else, but
+    # never served -- ``modeling.run_leaderboard`` picks the best non-baseline.
+    is_baseline: bool = False
     # Set when a candidate could not be trained at all. A named failure is more
     # useful than a model quietly missing from the table.
     error: str = ""

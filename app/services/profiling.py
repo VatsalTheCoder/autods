@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 import re
 
+import numpy as np
 import pandas as pd
 
 from app.agents.schema_models import (
@@ -22,8 +23,10 @@ from app.agents.schema_models import (
     ColumnProfile,
     SchemaReport,
     SemanticType,
+    TargetDistribution,
     TaskType,
 )
+from app.ml.target import MIN_SKEW_FOR_LOG
 
 # Regexes for the PII the spec calls out (7.1). Deliberately conservative:
 # better to miss a borderline case and let the user tick the box than to flag
@@ -63,6 +66,9 @@ def profile_dataset(frame: pd.DataFrame) -> SchemaReport:
     target = _suggest_target(columns)
     task_type = _infer_task_type(columns, target)
     balance = _class_balance(frame, target) if target and task_type == "classification" else None
+    distribution = (
+        _target_distribution(frame, target) if target and task_type == "regression" else None
+    )
 
     return SchemaReport(
         n_rows=n_rows,
@@ -71,7 +77,50 @@ def profile_dataset(frame: pd.DataFrame) -> SchemaReport:
         suggested_target=target,
         task_type=task_type,
         class_balance=balance,
+        target_distribution=distribution,
         llm_enriched=False,
+    )
+
+
+def retarget(
+    report: SchemaReport,
+    frame: pd.DataFrame,
+    *,
+    target: str,
+    task_type: TaskType,
+) -> SchemaReport:
+    """Re-measure the target-dependent parts of a report against the *confirmed* target.
+
+    ``profile_dataset`` runs at upload, before anyone has said what they are
+    predicting, so its ``class_balance`` and ``target_distribution`` describe
+    ``_suggest_target``'s guess. The user then picks a target at the checkpoint,
+    and from that moment the stored report contains two numbers about the wrong
+    column.
+
+    That was harmless while the balance only informed a SMOTE decision that a
+    regression run ignores anyway. It stopped being harmless when the planner
+    gained a question about the shape of a numeric target's tail: shown
+    ``availability_365``'s distribution while the user is predicting ``price``,
+    it would answer confidently from the wrong five numbers.
+
+    Only the three target-dependent fields are recomputed. The per-column
+    profiles, the PII flags and the LLM's column meanings are all independent of
+    which column was chosen, and re-deriving them here would throw away the
+    enrichment the schema pass paid for.
+    """
+    if target not in frame.columns:
+        return report
+    return report.model_copy(
+        update={
+            "suggested_target": target,
+            "task_type": task_type,
+            "class_balance": (
+                _class_balance(frame, target) if task_type == "classification" else None
+            ),
+            "target_distribution": (
+                _target_distribution(frame, target) if task_type == "regression" else None
+            ),
+        }
     )
 
 
@@ -208,3 +257,29 @@ def _class_balance(frame: pd.DataFrame, target: str) -> ClassBalance | None:
     ratio = largest / smallest if smallest else float("inf")
     # A 1.5:1 majority is normal; beyond it SMOTE (Section 7) starts to matter.
     return ClassBalance(counts=as_dict, imbalance_ratio=ratio, imbalanced=ratio > 1.5)
+
+
+def _target_distribution(frame: pd.DataFrame, target: str) -> TargetDistribution | None:
+    """Five numbers describing a numeric target's shape.
+
+    Deliberately five and not a full ``describe()``: these are what the planner
+    needs to judge a tail and what the report needs to explain a squared-error
+    metric. Quartiles would add tokens to an LLM prompt (spec 10) without
+    changing either decision.
+    """
+    values = pd.to_numeric(frame[target], errors="coerce").replace([np.inf, -np.inf], np.nan)
+    values = values.dropna()
+    if values.empty:
+        return None
+
+    skew = float(values.skew()) if len(values) > 2 else 0.0
+    if not np.isfinite(skew):
+        skew = 0.0
+    return TargetDistribution(
+        minimum=float(values.min()),
+        median=float(values.median()),
+        maximum=float(values.max()),
+        mean=float(values.mean()),
+        skew=skew,
+        heavy_tailed=abs(skew) >= MIN_SKEW_FOR_LOG,
+    )

@@ -662,3 +662,183 @@ class TestExplainabilityAndTheServedModel:
     def test_the_sections_are_absent_when_the_run_never_got_there(self, markdown):
         assert "## Why the model predicts what it does" not in markdown
         assert "## The model that gets served" not in markdown
+
+
+class TestRegressionErrorsAreReadNotJustListed:
+    """The table has always held the numbers; nothing made the comparison.
+
+    A run on listing prices reported RMSE 202 beside MAE 81 and R² 0.07, and a
+    reader had to know that RMSE squares its errors to see that a minority of
+    rows owned the score. That inference belongs in the report.
+    """
+
+    @staticmethod
+    def _report(mae: float, rmse: float, median_ae: float | None = None, **kwargs) -> str:
+        metrics = {
+            "mae": MetricSummary(mean=mae, std=1.0),
+            "rmse": MetricSummary(mean=rmse, std=1.0),
+            "r2": MetricSummary(mean=0.07, std=0.21),
+        }
+        if median_ae is not None:
+            metrics["median_ae"] = MetricSummary(mean=median_ae, std=1.0)
+        return build_markdown_report(
+            filename="listings.csv",
+            plan=PlannerPlan(),
+            cleaning=CleaningReport(
+                n_rows_before=100, n_rows_after=100, n_columns_before=4, n_columns_after=4
+            ),
+            preprocessing=PreprocessingSpec(numeric_columns=["rooms"]),
+            evaluation=EvaluationReport(
+                task_type="regression",
+                target_column="price",
+                model_name="LGBMRegressor",
+                n_folds=5,
+                cv_strategy="KFold",
+                n_rows=100,
+                n_features=3,
+                folds=[FoldScore(fold=1, n_train=80, n_test=20, metrics={"r2": 0.07})],
+                metrics=metrics,
+                primary_metric="r2",
+            ),
+            **kwargs,
+        )
+
+    def test_a_squared_error_dominated_run_is_called_out(self):
+        report = self._report(mae=80.84, rmse=201.76)
+        assert "RMSE is 2.5x MAE" in report
+        assert "minority of rows" in report
+        assert "R² inherits the same bias" in report
+
+    def test_evenly_sized_errors_are_called_out_too(self):
+        report = self._report(mae=80.0, rmse=88.0)
+        assert "close to MAE" in report
+        assert "no small group of rows" in report
+
+    def test_the_median_error_is_contrasted_with_the_mean(self):
+        report = self._report(mae=80.84, rmse=201.76, median_ae=30.0)
+        assert "median error is" in report
+        assert "half of all predictions" in report
+
+    def test_a_classification_report_says_nothing_about_it(self, markdown):
+        assert "RMSE" not in markdown
+
+    def test_mape_is_shown_as_a_percentage(self):
+        report = self._report(mae=80.84, rmse=201.76)
+        assert "MAPE" not in report  # absent from the metrics dict above
+        with_mape = build_markdown_report(
+            filename="listings.csv",
+            plan=PlannerPlan(),
+            cleaning=CleaningReport(
+                n_rows_before=100, n_rows_after=100, n_columns_before=4, n_columns_after=4
+            ),
+            preprocessing=PreprocessingSpec(numeric_columns=["rooms"]),
+            evaluation=EvaluationReport(
+                task_type="regression",
+                target_column="price",
+                model_name="LGBMRegressor",
+                n_folds=5,
+                cv_strategy="KFold",
+                n_rows=100,
+                n_features=3,
+                metrics={"mape": MetricSummary(mean=0.4312, std=0.02)},
+                primary_metric="mape",
+            ),
+        )
+        assert "43.1%" in with_mape
+
+
+class TestTheTargetsTailIsReported:
+    @staticmethod
+    def _with_outliers(**kwargs) -> str:
+        from app.ml.contracts import TargetOutliers
+
+        return build_markdown_report(
+            filename="listings.csv",
+            plan=PlannerPlan(),
+            cleaning=CleaningReport(
+                n_rows_before=100,
+                n_rows_after=100,
+                n_columns_before=4,
+                n_columns_after=4,
+                target_outliers=TargetOutliers(column="price", n_detected=250, note="TAIL NOTE"),
+            ),
+            preprocessing=PreprocessingSpec(numeric_columns=["rooms"]),
+            evaluation=EvaluationReport(
+                task_type="regression",
+                target_column="price",
+                model_name="LGBMRegressor",
+                n_folds=5,
+                cv_strategy="KFold",
+                n_rows=100,
+                n_features=3,
+                metrics={"r2": MetricSummary(mean=0.07, std=0.21)},
+                primary_metric="r2",
+            ),
+            **kwargs,
+        )
+
+    def test_the_tail_note_reaches_the_data_quality_section(self):
+        assert "TAIL NOTE" in self._with_outliers()
+
+    def test_an_infinite_target_row_is_accounted_for(self):
+        report = build_markdown_report(
+            filename="listings.csv",
+            plan=PlannerPlan(),
+            cleaning=CleaningReport(
+                n_rows_before=102,
+                n_rows_after=100,
+                n_columns_before=4,
+                n_columns_after=4,
+                non_finite_target_rows_removed=2,
+            ),
+            preprocessing=PreprocessingSpec(numeric_columns=["rooms"]),
+            evaluation=EvaluationReport(
+                task_type="regression",
+                target_column="price",
+                model_name="LGBMRegressor",
+                n_folds=5,
+                cv_strategy="KFold",
+                n_rows=100,
+                n_features=3,
+                metrics={"r2": MetricSummary(mean=0.07, std=0.21)},
+                primary_metric="r2",
+            ),
+        )
+        assert "2 rows whose target was infinite" in report
+
+
+class TestTheBaselineRowIsMarked:
+    def test_the_baseline_is_labelled_and_explained(self, cleaning, preprocessing, evaluation):
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            leaderboard=Leaderboard(
+                task_type="classification",
+                target_column="churn",
+                primary_metric="f1_macro",
+                n_folds=5,
+                cv_strategy="StratifiedKFold",
+                entries=[
+                    LeaderboardEntry(
+                        rank=1,
+                        model_name="LightGBM",
+                        primary_metric="f1_macro",
+                        score=0.73,
+                        std=0.01,
+                    ),
+                    LeaderboardEntry(
+                        rank=2,
+                        model_name="Baseline (most frequent class)",
+                        primary_metric="f1_macro",
+                        score=0.34,
+                        std=0.00,
+                        is_baseline=True,
+                    ),
+                ],
+            ),
+        )
+        assert "Baseline (most frequent class) *(baseline)*" in report
+        assert "never the model that gets served" in report

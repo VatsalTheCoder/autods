@@ -28,7 +28,7 @@ from app.services.artifacts import (
     SCHEMA_ARTIFACT,
     load_json_artifact,
 )
-from app.services.profiling import profile_dataset, read_csv_frame
+from app.services.profiling import profile_dataset, read_csv_frame, retarget
 from app.worker.graph import build_pipeline_graph
 from app.worker.progress import init_agent_runs, set_job_status
 from app.worker.state import PIPELINE_NODES
@@ -118,7 +118,15 @@ def run_pipeline(job_id: int) -> None:
     try:
         context = _load_context(job_id)
         frame = _load_dataset(job_id)
-        schema = _load_schema(job_id, frame)
+        # Aligned to the target the user actually confirmed. The stored report
+        # was profiled before anyone had chosen one, so its target statistics
+        # describe profiling's guess until this runs (``profiling.retarget``).
+        schema = retarget(
+            _load_schema(job_id, frame),
+            frame,
+            target=context.target,
+            task_type=context.task_type,
+        )
 
         graph = build_pipeline_graph()
         graph.invoke(

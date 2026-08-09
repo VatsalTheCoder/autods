@@ -136,6 +136,13 @@ if leaderboard and leaderboard.get("entries"):
         "The spread matters as much as the score: a small lead between models "
         "whose folds swing widely is not really a lead."
     )
+    # The winner is the best *real* model, which is not always rank 1: the
+    # featureless baseline is ranked with everything else and can top the board.
+    # Labelling rank 1 "winner" would then point at a model that was never served.
+    served = next(
+        (e["rank"] for e in leaderboard["entries"] if not e["is_baseline"] and not e["error"]),
+        None,
+    )
     st.dataframe(
         [
             {
@@ -146,15 +153,31 @@ if leaderboard and leaderboard.get("entries"):
                 ),
                 "Spread across folds": "—" if entry["error"] else round(entry["std"], 4),
                 "Time": f"{entry['fit_seconds']:.1f}s",
-                "Note": entry["error"] or ("winner" if entry["rank"] == 1 else ""),
+                "Note": entry["error"]
+                or (
+                    "baseline — not served"
+                    if entry["is_baseline"]
+                    else ("winner" if entry["rank"] == served else "")
+                ),
             }
             for entry in leaderboard["entries"]
         ],
         hide_index=True,
         width="stretch",
     )
-    if leaderboard.get("resampling", "none") != "none":
-        st.caption(f"Class balancing: {leaderboard['resampling']}.")
+    if any(e["is_baseline"] for e in leaderboard["entries"]):
+        st.caption(
+            "The baseline ignores every feature and always predicts the same answer. "
+            "It is there to show what the other scores are worth — a model that cannot "
+            "beat it has learned nothing from the data, however its score reads on its own."
+        )
+    # An absent or empty value means the same as "none" here; without the
+    # emptiness check the page renders a bare "Class balancing: ."
+    resampling = (leaderboard.get("resampling") or "none").strip()
+    if resampling != "none":
+        st.caption(f"Class balancing: {resampling}.")
+    for warning in leaderboard.get("warnings", []):
+        st.warning(warning)
 
 # ---- How each column was prepared -------------------------------------------
 

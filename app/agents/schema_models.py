@@ -56,6 +56,30 @@ class ClassBalance(BaseModel):
     imbalanced: bool
 
 
+class TargetDistribution(BaseModel):
+    """The shape of a numeric target -- ``ClassBalance``'s regression counterpart.
+
+    A classification run has always had its target measured before anything
+    decided what to do about it, and a regression run had nothing equivalent. So
+    the planner was asked whether to trim a heavy tail while being shown only
+    column names and null rates, and the report could not say why a squared-error
+    metric looked the way it did. These are the five numbers that answer both:
+    the gap between ``median`` and ``maximum`` is the tail, and ``skew`` says
+    whether it is heavy enough to act on.
+    """
+
+    minimum: float
+    median: float
+    maximum: float
+    mean: float
+    skew: float
+
+    # Right-skewed past the point where squared-error training starts chasing
+    # the tail. The same threshold decides the log transform (``ml/target.py``),
+    # which is deliberate -- they are two responses to one property.
+    heavy_tailed: bool = False
+
+
 class SchemaReport(BaseModel):
     """The full picture shown at the human checkpoint."""
 
@@ -65,6 +89,7 @@ class SchemaReport(BaseModel):
     suggested_target: str | None = None
     task_type: TaskType | None = None
     class_balance: ClassBalance | None = None
+    target_distribution: TargetDistribution | None = None
     # True when the LLM pass ran; False when it was skipped or failed and the
     # report is deterministic-only. Surfaced so the UI can say which it is.
     llm_enriched: bool = False
