@@ -59,7 +59,7 @@ from app.ml.contracts import (
     FeatureStrategy,
     PreprocessingSpec,
 )
-from app.ml.encoders import DatetimeFeatures, FrequencyEncoder
+from app.ml.encoders import DatetimeFeatures, FrequencyEncoder, TfidfFeatures
 
 logger = logging.getLogger(__name__)
 
@@ -239,11 +239,19 @@ def _datetime_branches(items: list[ColumnStrategy]) -> list[tuple]:
 
 
 def _text_branches(items: list[ColumnStrategy]) -> list[tuple]:
-    """High-cardinality columns: one output column each, not hundreds."""
+    """High-cardinality columns, encoded by what makes them high-cardinality.
+
+    Two encodings, grouped separately because they are different questions about
+    the column. ``frequency`` asks how often a value repeats and costs one output
+    column; ``tfidf`` asks what the text says and costs ``n_components``. The
+    strategy agent decides which on word count -- see ``is_long_form``.
+    """
     branches = []
-    for index, ((impute, scale), columns) in enumerate(_grouped(items, "impute", "scale"), start=1):
+    for index, ((impute, scale, encode), columns) in enumerate(
+        _grouped(items, "impute", "scale", "encode"), start=1
+    ):
         steps = [("impute", _imputer(impute, fill="missing"))] if impute != "none" else []
-        steps.append(("encode", FrequencyEncoder()))
+        steps.append(("encode", TfidfFeatures() if encode == "tfidf" else FrequencyEncoder()))
         if scale != "none":
             steps.append(("scale", _scaler(scale)))
         branches.append((f"text_{index}", SklearnPipeline(steps=steps), columns))

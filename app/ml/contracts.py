@@ -172,7 +172,7 @@ class CleaningReport(BaseModel):
 # What the column *is*, which decides which recipe it gets built into.
 ColumnRole = Literal["numeric", "categorical", "ordinal", "datetime", "text", "drop"]
 ImputeStrategy = Literal["median", "mean", "most_frequent", "constant", "none"]
-EncodeStrategy = Literal["onehot", "ordinal", "frequency", "none"]
+EncodeStrategy = Literal["onehot", "ordinal", "frequency", "tfidf", "none"]
 ScaleStrategy = Literal["standard", "minmax", "none"]
 
 

@@ -87,6 +87,21 @@ MAX_ONEHOT_CARDINALITY = 50
 # rows. It cost a column, an entry in every SHAP chart, and contributed nothing.
 MAX_TEXT_UNIQUENESS_RATE = 0.9
 
+# ...unless the column is *prose*, which gets TF-IDF instead of either.
+#
+# Near-uniqueness says frequency encoding is the wrong tool; it does not say the
+# column is worthless. A 168-word property description is near-unique for the
+# obvious reason and is also the most informative column in its dataset. What
+# separates the two cases is not how many distinct values there are but how much
+# language is in each one, so the test is average word count.
+#
+# 20 is set from measurement rather than taste. Every text column across this
+# repo's datasets averages at most 6.6 words -- support ticket subjects, sensor
+# notes, identifiers -- while the real-estate descriptions average 168. Nothing
+# real sits near the line, so it separates titles and identifiers from prose
+# without reclassifying a single existing column.
+MIN_WORDS_FOR_PROSE = 20
+
 # How many sample values the prompt shows per column. Unlike the planner -- which
 # deliberately sends no values at all -- this agent needs them: deciding that a
 # column is ordinal, and in what order, is impossible without seeing that it
@@ -108,7 +123,9 @@ _SYSTEM = (
     "- impute: how to fill blanks -- 'median' or 'mean' for numbers, "
     "'most_frequent' or 'constant' for labels, 'none' if it should not be filled.\n"
     "- encode: 'onehot' for a few unordered labels, 'ordinal' for ordered ones, "
-    "'frequency' when there are too many labels to one-hot, 'none' for numbers.\n"
+    "'frequency' when there are too many labels to one-hot, 'tfidf' for free text "
+    "that is written in sentences rather than picked from a set of labels, "
+    "'none' for numbers.\n"
     "- scale: 'standard' for most numbers, 'minmax' for bounded quantities like "
     "percentages, 'none' when scaling is meaningless.\n"
     "- ordinal_order: only for ordinal columns, the categories from lowest to "
@@ -256,6 +273,24 @@ def default_strategy(name: str, series: pd.Series) -> ColumnStrategy:
             column=name, role="datetime", impute="median", encode="none", scale="standard"
         )
     if role == "text":
+        # Prose first, because it outranks near-uniqueness: a column of
+        # descriptions is near-unique *and* worth reading.
+        if is_long_form(series):
+            return ColumnStrategy(
+                column=name,
+                role="text",
+                # Constant rather than most_frequent: filling an absent
+                # description with the most common one invents text the listing
+                # never carried, and the encoder reads an empty string as the
+                # absence it is.
+                impute="constant",
+                encode="tfidf",
+                scale="none",
+                rationale=(
+                    f"averages {_mean_word_count(series):,.0f} words per value -- free text, "
+                    "whose meaning is worth more than how often it repeats"
+                ),
+            )
         if is_near_unique(series):
             return ColumnStrategy(
                 column=name,
@@ -291,6 +326,13 @@ def observed_role(series: pd.Series) -> ColumnRole:
         return "numeric"
     if pd.api.types.is_datetime64_any_dtype(series):
         return "datetime"
+    # Prose is text however few distinct values it holds. Cardinality is the
+    # usual test, but it answers the wrong question for a column of sentences: a
+    # survey with 200 rows and 45 distinct free-text answers is under the
+    # one-hot limit and would become 45 columns, each meaning "said exactly
+    # this". Length is what identifies it, so length is checked first.
+    if is_long_form(series):
+        return "text"
     if int(series.nunique(dropna=True)) > MAX_ONEHOT_CARDINALITY:
         return "text"
     return "categorical"
@@ -312,6 +354,34 @@ def is_near_unique(series: pd.Series) -> bool:
     return int(series.nunique(dropna=True)) / n_rows > MAX_TEXT_UNIQUENESS_RATE
 
 
+def is_long_form(series: pd.Series) -> bool:
+    """True when the column holds prose rather than labels or identifiers.
+
+    Sits beside ``is_near_unique`` for the same reason it does: this is not a
+    question about what the column *is* -- it is text either way -- but about
+    which of the two encodings available to a text column can do anything with
+    it. Near-uniqueness rules frequency encoding out; this rules TF-IDF in.
+
+    Measured on words rather than characters. A 40-character value could be a
+    sentence or a URL, and the word count tells those apart where a length does
+    not.
+    """
+    return _mean_word_count(series) >= MIN_WORDS_FOR_PROSE
+
+
+def _mean_word_count(series: pd.Series) -> float:
+    """Average whitespace-separated words per non-null value, 0.0 when empty.
+
+    Whitespace splitting rather than tokenisation on purpose: this decides
+    between two code paths, and the decision is nowhere near close enough for
+    punctuation handling to change it.
+    """
+    values = series.dropna().astype(str)
+    if values.empty:
+        return 0.0
+    return float(values.str.split().str.len().mean())
+
+
 # ---- Gate 2: making a choice coherent with the column it is about ------------
 
 
@@ -330,9 +400,7 @@ def _coerce(
         order = []
 
     impute = _coerce_impute(item, series, role, overrides)
-    encode = _coerce_choice(
-        item, "encode", item.encode, _ALLOWED_ENCODE[role], _DEFAULT_ENCODE[role], overrides
-    )
+    encode = _coerce_encode(item, series, role, overrides)
     scale = _coerce_choice(
         item, "scale", item.scale, _ALLOWED_SCALE[role], _DEFAULT_SCALE[role], overrides
     )
@@ -378,6 +446,49 @@ def _coerce_impute(
         "none",
         _DEFAULT_IMPUTE[role],
         f"the column has {int(series.isna().sum())} missing value(s), which no model accepts",
+    )
+
+
+def _coerce_encode(
+    item: ColumnStrategy,
+    series: pd.Series,
+    role: ColumnRole,
+    overrides: list[StrategyOverride],
+) -> EncodeStrategy:
+    """The encoding, with the text role's two options decided by the column.
+
+    Every other role has a fixed default. Text has two encodings that answer
+    different questions -- how often a value repeats, versus what it says -- and
+    which one is even *buildable* depends on the column rather than the role, so
+    the choice is made here where the series is in hand.
+
+    Frequency encoding on a near-unique prose column is overridden rather than
+    honoured. It is the specific failure this pair of predicates exists to catch:
+    the encoder emits one constant during training and a different one at scoring
+    time, and the column occupies a row in every SHAP chart having contributed
+    nothing.
+    """
+    if role != "text":
+        return _coerce_choice(
+            item, "encode", item.encode, _ALLOWED_ENCODE[role], _DEFAULT_ENCODE[role], overrides
+        )
+
+    long_form = is_long_form(series)
+    default: EncodeStrategy = "tfidf" if long_form else "frequency"
+    requested = _coerce_choice(
+        item, "encode", item.encode, _ALLOWED_ENCODE[role], default, overrides
+    )
+    if requested != "frequency" or not (long_form and is_near_unique(series)):
+        return requested
+    return _override(
+        overrides,
+        item.column,
+        "encode",
+        requested,
+        "tfidf",
+        f"averages {_mean_word_count(series):,.0f} words across "
+        f"{series.nunique(dropna=True):,} near-unique values, so counting repeats "
+        "would encode a constant",
     )
 
 
@@ -438,7 +549,9 @@ def _coerce_role(
         # with one value per row produces a constant, and every other encoding
         # was already off the table at this cardinality -- so there is nothing
         # left to build and the honest answer is to drop it, whatever was asked.
-        if is_near_unique(series):
+        # Prose is exempt: near-uniqueness condemns the *encoding*, and a
+        # description column has another one available (``_coerce_encode``).
+        if is_near_unique(series) and not is_long_form(series):
             if requested == "drop":
                 return "drop"
             return _override(
@@ -602,7 +715,7 @@ _ALLOWED_ENCODE: dict[ColumnRole, frozenset[str]] = {
     # The role *is* the encoding here; allowing anything else would make the
     # ordering the LLM supplied pointless.
     "ordinal": frozenset({"ordinal"}),
-    "text": frozenset({"frequency"}),
+    "text": frozenset({"frequency", "tfidf"}),
     "drop": frozenset({"none"}),
 }
 _DEFAULT_ENCODE: dict[ColumnRole, EncodeStrategy] = {
