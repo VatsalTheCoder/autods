@@ -12,6 +12,7 @@ import pytest
 from app.services.csv_validation import (
     CSVValidationError,
     inspect_csv,
+    read_frame,
     validate_filename,
     validate_size,
 )
@@ -104,3 +105,59 @@ class TestInspect:
         """Blanks are the cleaning agent's problem, not a reason to reject."""
         summary = inspect_csv(b"a,b,c\n1,,3\n,5,6\n")
         assert summary.n_rows == 2
+
+
+class TestNotApplicableLabels:
+    """A sentinel like "NA" in a label column is a value, not a gap.
+
+    The case that motivated this: on Ames house prices, ``PoolQC`` is 99.5% the
+    literal string "NA" meaning *no pool*. Read as missing, the column looked
+    almost entirely empty and cleaning deleted it -- along with ``Alley``,
+    ``Fence`` and ``MiscFeature``, none of which had a single missing value.
+    """
+
+    def test_keeps_na_as_a_category_in_a_label_column(self):
+        frame = read_frame(b"quality\nGd\nEx\nNA\nNA\nTA\n")
+        assert frame["quality"].isna().sum() == 0
+        assert (frame["quality"] == "NA").sum() == 2
+        assert frame["quality"].nunique() == 4
+
+    def test_keeps_none_as_a_category(self):
+        """Ames spells MasVnrType's "no veneer" as the string "None"."""
+        frame = read_frame(b"veneer\nBrkFace\nNone\nNone\nStone\n")
+        assert frame["veneer"].isna().sum() == 0
+        assert (frame["veneer"] == "None").sum() == 2
+
+    def test_reads_na_as_a_gap_in_a_numeric_column(self):
+        """The other half: "NA" among numbers is genuinely unknown."""
+        frame = read_frame(b"frontage\n65\n80\nNA\n70\n")
+        assert frame["frontage"].dtype.kind == "f"
+        assert frame["frontage"].isna().sum() == 1
+        assert frame["frontage"].sum() == 215
+
+    def test_a_blank_cell_is_still_missing(self):
+        """Narrowing the token list must not stop an empty field being a gap."""
+        frame = read_frame(b"a,b\n1,x\n,y\n")
+        assert frame["a"].isna().sum() == 1
+
+    @pytest.mark.parametrize("token", [b"NaN", b"null", b"NULL", b"#N/A", b"<NA>"])
+    def test_machine_written_tokens_are_still_missing(self, token):
+        """Nobody labels a category "NaN"; those come from an exporter."""
+        frame = read_frame(b"label\nx\n" + token + b"\ny\n")
+        assert frame["label"].isna().sum() == 1
+
+    def test_one_stray_word_does_not_make_a_numeric_column_categorical(self):
+        """Below the recovery threshold the column is text; above it, numbers."""
+        rows = b"\n".join(str(i).encode() for i in range(40))
+        frame = read_frame(b"n\n" + rows + b"\nNA\nunknown\n")
+        assert frame["n"].dtype.kind == "f"
+        assert frame["n"].isna().sum() == 2
+
+    def test_a_column_of_only_sentinels_is_left_alone(self):
+        """No other values means no evidence; cleaning drops it as constant."""
+        frame = read_frame(b"a,b\n1,NA\n2,NA\n")
+        assert frame["b"].isna().sum() == 0
+
+    def test_the_preview_shows_the_same_values_the_model_will_see(self):
+        summary = inspect_csv(b"a,quality\n1,Gd\n2,NA\n")
+        assert summary.preview[1]["quality"] == "NA"

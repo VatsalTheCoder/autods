@@ -309,6 +309,45 @@ class MetricSummary(BaseModel):
     std: float
 
 
+class ConcentratedFoldError(BaseModel):
+    """Why one fold scored far below the others, when a few rows explain it.
+
+    Fold-to-fold spread has two very different causes and the report used to give
+    the same answer to both. If every fold disagrees a little, the dataset is
+    small and more rows genuinely would tighten the estimate. If *one* fold
+    collapses because a handful of records in it are unlike anything in training,
+    more rows would change nothing -- the records would still be there, and the
+    only honest advice is to look at them.
+
+    Distinguishing the two needs the residuals, not the scores, which is why this
+    is measured inside cross-validation rather than derived in the report.
+
+    The case this was built from: Ames fold 3 scored R² 0.69 against a median of
+    0.888, and two of its 292 rows -- houses of 4,676 and 5,642 sq ft sold
+    incomplete, at a third of their built value -- produced 64% of its squared
+    error. Removing three rows returned the fold to 0.90. Note that cleaning's
+    ``TargetOutliers`` fence cannot see records like these: both sold at an
+    entirely ordinary price, near the middle of the distribution. They are
+    extreme in the *relationship* between the features and the target, not in the
+    target alone, and only a residual can show that.
+    """
+
+    fold: int
+    metric: str
+    # The worst fold's score, and the middle of the rest, so the gap being
+    # explained is legible without going back to the fold table.
+    score: float
+    median_score: float
+    n_test_rows: int
+    # The smallest set of rows accounting for the majority of the fold's squared
+    # error, and what the fold would have scored without them. The second number
+    # is not a result -- it is the size of the effect those rows are having.
+    n_dominant_rows: int
+    dominant_error_share: float
+    score_without_dominant: float | None = None
+    note: str = ""
+
+
 class EvaluationReport(BaseModel):
     """The cross-validated result -- the artifact Section 5 exists to produce."""
 
@@ -326,6 +365,15 @@ class EvaluationReport(BaseModel):
     metrics: dict[str, MetricSummary] = Field(default_factory=dict)
     # The metric a reader should look at first, and later sections will rank on.
     primary_metric: str = ""
+    # Present only when one fold scored far below the others *and* a few of its
+    # rows explain that. Absent means the spread, if any, is ordinary.
+    concentrated_fold_error: ConcentratedFoldError | None = None
+    # How the folds were drawn. Stated in the report because "5-fold KFold" alone
+    # does not say whether the rows were shuffled first, and on a file that
+    # arrived in a meaningful order that is the difference between an honest
+    # estimate and a meaningless one.
+    shuffled: bool = False
+    random_seed: int | None = None
 
     # Metrics that could not be computed for this dataset (ROC-AUC with a class
     # missing from a fold, say). Surfaced rather than dropped, so an absent

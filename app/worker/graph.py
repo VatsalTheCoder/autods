@@ -365,6 +365,9 @@ def evaluation_node(state: PipelineState) -> dict:
         n_rows=cv.n_rows,
         n_features=cv.n_features,
         warnings=warnings,
+        concentrated_fold_error=cv.concentrated_fold_error,
+        shuffled=cv.shuffled,
+        random_seed=cv.random_seed,
     )
     with SessionLocal() as db:
         register_json_artifact(db, job_id, EVALUATION_ARTIFACT, report)

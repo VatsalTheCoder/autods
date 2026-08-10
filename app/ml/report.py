@@ -23,6 +23,7 @@ from __future__ import annotations
 from app.ml.contracts import (
     CleaningReport,
     ClusteringReport,
+    ConcentratedFoldError,
     CriticReport,
     EdaReport,
     EvaluationReport,
@@ -92,7 +93,7 @@ def build_markdown_report(
         _review(critic),
         _recommendations(narrative),
         _caveats(evaluation),
-        _limitations(),
+        _limitations(eda, leaderboard, explainability),
     ]
     return "\n\n".join(section.strip() for section in sections if section.strip()) + "\n"
 
@@ -276,17 +277,31 @@ def _headline(evaluation: EvaluationReport) -> str:
         return "## Result\n\nNo metric could be computed for this dataset."
 
     summary = evaluation.metrics[evaluation.primary_metric]
+    spread = _spread_note(
+        summary.std, evaluation.primary_metric, evaluation.concentrated_fold_error
+    )
     return (
         "## Result\n\n"
         f"**{_label(evaluation.primary_metric)}: {_fmt(evaluation.primary_metric, score)}** "
         f"(± {_fmt(evaluation.primary_metric, summary.std)} across "
         f"{evaluation.n_folds} folds)\n\n"
-        f"{_spread_note(summary.std, evaluation.primary_metric)}"
+        f"{spread}"
     )
 
 
-def _spread_note(std: float, metric: str) -> str:
-    """Say what the fold-to-fold spread means, since that is the point of CV."""
+def _spread_note(std: float, metric: str, concentrated: ConcentratedFoldError | None = None) -> str:
+    """Say what the fold-to-fold spread means, since that is the point of CV.
+
+    When cross-validation identified a single fold whose error a few rows own,
+    that measurement replaces the generic advice entirely. The two readings call
+    for opposite responses -- gather more rows, or go and look at these ones --
+    and the sentence this displaced ("more data would tighten it") gave the first
+    answer in a case that needed the second. On Ames it was flatly wrong: two
+    partial sales out of 1,460 produced the spread, and no quantity of additional
+    houses would have removed them.
+    """
+    if concentrated is not None:
+        return concentrated.note
     if metric not in _PROPORTION_METRICS:
         return "The ± figure is the spread across folds; smaller means more consistent."
     if std < 0.02:
@@ -295,7 +310,8 @@ def _spread_note(std: float, metric: str) -> str:
         return "There is moderate variation between folds, which is normal."
     return (
         "The score varies considerably between folds -- treat the average as a "
-        "rough estimate. More data would tighten it."
+        "rough estimate, and look at the fold table below to see whether one "
+        "fold is responsible."
     )
 
 
@@ -307,10 +323,29 @@ def _methodology(evaluation: EvaluationReport) -> str:
     reader should not have to open the source to find out whether the evaluation
     was done properly.
     """
+    # How the rows were assigned to folds. "5-fold KFold" alone does not say
+    # whether they were shuffled first, and on a file that arrived sorted -- by
+    # date, by region, by label -- that is the difference between an honest
+    # estimate and a meaningless one. The seed is named so the split can be
+    # reproduced exactly.
+    if evaluation.shuffled:
+        seed = evaluation.random_seed
+        assignment = (
+            "The rows were shuffled before being split"
+            + (f" (random seed {seed})" if seed is not None else "")
+            + ", so each fold is a random sample rather than a slice of the file "
+            "in its original order."
+        )
+    else:
+        assignment = (
+            "The rows were **not** shuffled, so each fold is a contiguous slice of "
+            "the file in the order it arrived."
+        )
+
     return (
         "## How this was validated\n\n"
         f"The dataset was split into {evaluation.n_folds} folds using "
-        f"`{evaluation.cv_strategy}`. For each fold in turn, the *entire* "
+        f"`{evaluation.cv_strategy}`. {assignment} For each fold in turn, the *entire* "
         "preparation pipeline -- missing-value imputation, scaling and category "
         "encoding -- was fitted on that fold's training rows only, and then "
         "applied to the held-out rows before scoring. Nothing was imputed, scaled "
@@ -407,10 +442,28 @@ def _folds_table(evaluation: EvaluationReport) -> str:
         f"| Fold | Rows fitted on | Rows scored on | {_label(primary)} |",
         "| --- | --- | --- | --- |",
     ]
+    concentrated = evaluation.concentrated_fold_error
     for fold in evaluation.folds:
         value = fold.metrics.get(primary)
         shown = _fmt(primary, value) if value is not None else "—"
-        lines.append(f"| {fold.fold} | {fold.n_train:,} | {fold.n_test:,} | {shown} |")
+        # Mark the fold the note below is about, so the reader does not have to
+        # scan the column to find which one is being discussed.
+        mark = " ←" if concentrated is not None and fold.fold == concentrated.fold else ""
+        lines.append(f"| {fold.fold} | {fold.n_train:,} | {fold.n_test:,} | {shown}{mark} |")
+
+    if concentrated is not None:
+        # The measurement itself is under Result, where the reader lands. Here it
+        # would be the same paragraph twice on one page, so this says only what
+        # the marked row means and what to do about it.
+        lines.append("")
+        lines.append(
+            f"The marked fold is carried by {_count(concentrated.n_dominant_rows, 'row')} "
+            f"of its {concentrated.n_test_rows:,} -- see **Result** above. Those rows are "
+            "worth looking at directly: a record the model misses this badly is usually one "
+            "whose target was set by something the dataset does not record. Finding that is "
+            "the point, and this is not a licence to delete them -- the score quoted without "
+            "them measures their effect, it is not a better result."
+        )
     return "\n".join(lines)
 
 
@@ -722,17 +775,49 @@ def _caveats(evaluation: EvaluationReport) -> str:
     return "\n".join(lines)
 
 
-def _limitations() -> str:
-    """State what this version does not do, so a weak slice is not read as a strong one."""
-    return (
-        "## What this version does not do yet\n\n"
-        "This is the first end-to-end version of the pipeline. It trains a single "
-        "model with a fixed preparation strategy, so treat the score as a baseline "
-        "rather than the best achievable result. Exploratory analysis and plots, "
-        "model comparison across several algorithms, class-imbalance resampling, "
-        "learned feature engineering, and per-prediction explanations are all still "
-        "to come."
+def _limitations(
+    eda: EdaReport | None,
+    leaderboard: Leaderboard | None,
+    explainability: ExplainabilityReport | None,
+) -> str:
+    """State what *this run* did not do, so a weak slice is not read as a strong one.
+
+    Measured against the artifacts rather than asserted. The fixed sentence this
+    replaced was written when the pipeline really did train one model and draw no
+    charts, and it went on claiming that after all three shipped -- so a report
+    containing a four-model leaderboard, six charts and a SHAP decomposition
+    closed by telling the reader those were "still to come". A limitations
+    section that contradicts the body of its own document does more damage to a
+    reader's trust than having a limitation.
+
+    The two entries that are always here are the two that are still true of every
+    run: nothing is tuned (``modeling`` fits every estimator at its library
+    default), and each model is scored by a single pass of cross-validation.
+    """
+    limits = []
+
+    if eda is None or not eda.plots:
+        limits.append("no exploratory charts were produced")
+    if leaderboard is None or len(leaderboard.entries) <= 1:
+        limits.append("only one model was trained, so there is nothing to compare it against")
+    if explainability is None:
+        limits.append("the model's predictions were not explained")
+
+    # True of every run, and worth stating plainly: an untuned default is a
+    # baseline, and a reader is entitled to know the number is not a ceiling.
+    limits.append(
+        "every model was fitted at its library defaults, with no hyper-parameter "
+        "search, so each score is a baseline rather than the best that model can do"
     )
+    limits.append(
+        "each model was scored by a single pass of cross-validation, which is why "
+        "two models finishing within a fold's spread of each other cannot be "
+        "separated -- repeated or nested cross-validation would be needed for that"
+    )
+
+    lines = ["## What this run does not tell you", ""]
+    lines.extend(f"- {limit.capitalize()}." for limit in limits)
+    return "\n".join(lines)
 
 
 def _count(n: int, noun: str) -> str:
