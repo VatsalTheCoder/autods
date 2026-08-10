@@ -26,6 +26,61 @@ PREVIEW_ROWS = 10
 
 ALLOWED_EXTENSIONS = {".csv"}
 
+# The strings ``pd.read_csv`` turns into NaN unless told otherwise. Written out
+# here rather than imported from pandas because the reader below is defined as a
+# deliberate *subtraction* from this set: if pandas quietly added or removed a
+# token, importing it would quietly change which values survive a load, which is
+# exactly the class of silent behaviour this exists to prevent.
+_PANDAS_DEFAULT_NA = frozenset(
+    {
+        "",
+        "#N/A",
+        "#N/A N/A",
+        "#NA",
+        "-1.#IND",
+        "-1.#QNAN",
+        "-NaN",
+        "-nan",
+        "1.#IND",
+        "1.#QNAN",
+        "<NA>",
+        "N/A",
+        "NA",
+        "NULL",
+        "NaN",
+        "None",
+        "n/a",
+        "nan",
+        "null",
+    }
+)
+
+# The tokens above that a human plausibly *typed* to mean "this row has none of
+# that thing" rather than "this value is unknown". They are kept as ordinary
+# category labels; everything else in the default set stays missing.
+#
+# This distinction is not cosmetic. On the Ames house-prices dataset every one of
+# ``PoolQC``, ``Alley``, ``Fence`` and ``MiscFeature`` is 80-100% the literal
+# string "NA" -- meaning no pool, no alley, no fence -- and reading those as gaps
+# made all four look almost entirely empty, so the mostly-empty rule in cleaning
+# deleted four complete columns that had no missing data at all. The columns that
+# survived were worse off: ``FireplaceQu``'s 690 "NA"s mean *no fireplace*, and
+# imputing them with the modal category told the model that 690 fireplace-less
+# houses had a fireplace of average quality.
+#
+# "NULL"/"null" are deliberately not here. Those come out of database exports and
+# mean missing; nobody labels a category "null".
+NOT_APPLICABLE = frozenset({"NA", "N/A", "n/a", "None"})
+
+# What is still read as missing: pandas' defaults, less the tokens above. The
+# empty cell survives in this set, so a genuinely blank field is still a gap.
+_MISSING_TOKENS = sorted(_PANDAS_DEFAULT_NA - NOT_APPLICABLE)
+
+# Fraction of a column's non-sentinel values that must parse as numbers for the
+# sentinels in it to be read as gaps rather than labels. Not 1.0, so that one
+# stray "unknown" in a numeric column does not flip the whole verdict.
+_NUMERIC_RECOVERY_THRESHOLD = 0.95
+
 
 class CSVValidationError(ValueError):
     """Raised when an uploaded file is not usable as a dataset."""
@@ -69,6 +124,76 @@ def validate_size(size_bytes: int, max_mb: int) -> None:
         raise CSVValidationError(f"File is {actual_mb:.1f} MB; the limit is {max_mb} MB.")
 
 
+def read_frame(data: bytes) -> pd.DataFrame:
+    """Parse CSV bytes into a DataFrame, keeping "not applicable" labels intact.
+
+    The one place in the codebase that turns bytes into a DataFrame, so that the
+    upload preview, the schema profile and the modelling pipeline all see the
+    same values. A column cannot be a category on one screen and a hole on the
+    next.
+
+    Differs from a bare ``pd.read_csv`` in one respect: the strings "NA", "N/A",
+    "n/a" and "None" are read as *values*, not as missing data (see
+    ``NOT_APPLICABLE``). Columns that are genuinely numeric are then converted
+    back, so a numeric column carrying "NA" for unknown still ends up with real
+    gaps -- see ``_recover_numeric``.
+    """
+    frame = pd.read_csv(io.BytesIO(data), keep_default_na=False, na_values=_MISSING_TOKENS)
+    return _recover_numeric(frame)
+
+
+def _recover_numeric(frame: pd.DataFrame) -> pd.DataFrame:
+    """Re-read columns whose preserved sentinels turned out to mean "unknown".
+
+    ``read_frame`` keeps "NA" as a label, which is right for a quality grade and
+    wrong for a measurement: Ames stores both ``PoolQC`` ("NA" = no pool, a real
+    category) and ``LotFrontage`` ("NA" = frontage not recorded, a real gap) the
+    same way, and only the column's other values say which is which.
+
+    The rule is the dtype the rest of the column implies. If everything that is
+    not a sentinel parses as a number, the column is a measurement and its
+    sentinels are gaps. If not, the column is labels and the sentinel is one of
+    them -- which is also the safe reading when "NA" really did mean unknown,
+    since an explicit "unknown" level carries more information for a tree than a
+    modal category imputed over it.
+
+    Only columns holding a preserved token are touched; pandas' own dtype
+    verdict stands everywhere else.
+    """
+    for name in frame.columns:
+        series = frame[name]
+        if not _is_text(series):
+            continue
+
+        sentinel = series.isin(NOT_APPLICABLE)
+        if not sentinel.any():
+            continue
+
+        others = series.where(~sentinel)
+        present = int(others.notna().sum())
+        if not present:
+            # Nothing but sentinels. There is no other evidence about the
+            # column, and cleaning drops it as constant either way.
+            continue
+
+        numbers = pd.to_numeric(others, errors="coerce")
+        if int(numbers.notna().sum()) / present >= _NUMERIC_RECOVERY_THRESHOLD:
+            frame[name] = numbers
+
+    return frame
+
+
+def _is_text(series: pd.Series) -> bool:
+    """True for a column of strings, under either pandas' old or new dtype.
+
+    pandas 2 parsed a text column as ``object``; pandas 3 gives it a dedicated
+    ``str`` dtype, and ``is_object_dtype`` is False for it. Checking only the
+    former silently skips every string column on pandas 3 -- which is to say it
+    turns ``_recover_numeric`` into a no-op. Mirrors ``cleaning._is_object_like``.
+    """
+    return pd.api.types.is_object_dtype(series) or isinstance(series.dtype, pd.StringDtype)
+
+
 def inspect_csv(data: bytes) -> DatasetSummary:
     """Parse the CSV and describe it, or raise CSVValidationError.
 
@@ -77,7 +202,7 @@ def inspect_csv(data: bytes) -> DatasetSummary:
     a single error type carrying a message worth showing in the UI.
     """
     try:
-        frame = pd.read_csv(io.BytesIO(data))
+        frame = read_frame(data)
     except pd.errors.EmptyDataError as exc:
         raise CSVValidationError("The file contains no data.") from exc
     except pd.errors.ParserError as exc:

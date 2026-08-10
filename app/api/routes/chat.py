@@ -11,7 +11,6 @@ so the routing decisions can be reviewed after the fact.
 
 from __future__ import annotations
 
-import io
 import logging
 
 import pandas as pd
@@ -27,6 +26,7 @@ from app.core.llm.usage import make_usage_recorder
 from app.models.chat_message import ChatMessage, ChatRoute
 from app.models.job import Job
 from app.services.artifacts import CLEANED_DATASET_ARTIFACT, load_artifact_bytes
+from app.services.csv_validation import read_frame
 from app.services.retrieval import indexed_count, search
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,11 @@ def _cleaned_frame(db: Session, job_id: int) -> pd.DataFrame | None:
         return None
     if data is None:
         return None
-    return pd.read_csv(io.BytesIO(data))
+    # The same reader the pipeline used, not a bare ``pd.read_csv``. This frame
+    # is the cleaned dataset *we* wrote, so a column whose value is the string
+    # "NA" -- no pool, no alley -- would otherwise come back as a gap here and
+    # the chat agent would answer "1,453 missing" about a column with none.
+    return read_frame(data)
 
 
 @router.post(
