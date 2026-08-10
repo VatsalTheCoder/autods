@@ -198,8 +198,60 @@ class TestPreparation:
 
 class TestHonesty:
     def test_limitations_are_stated(self, markdown):
-        assert "does not do yet" in markdown
-        assert "single model" in markdown
+        """A bare run: no charts, one model, no explanation -- say all three."""
+        assert "does not tell you" in markdown
+        assert "no exploratory charts" in markdown.lower()
+        assert "only one model was trained" in markdown.lower()
+        assert "library defaults" in markdown
+
+    def test_limitations_do_not_contradict_the_report(self, cleaning, preprocessing, evaluation):
+        """The bug this replaced: a report with a leaderboard and six charts still
+        closed by calling model comparison and plots "still to come"."""
+        board = Leaderboard(
+            task_type="classification",
+            target_column="churn",
+            primary_metric="f1_macro",
+            n_folds=5,
+            cv_strategy="StratifiedKFold",
+            entries=[
+                LeaderboardEntry(
+                    rank=1,
+                    model_name="LightGBM",
+                    primary_metric="f1_macro",
+                    score=0.812,
+                    std=0.021,
+                    fit_seconds=1.4,
+                ),
+                LeaderboardEntry(
+                    rank=2,
+                    model_name="RandomForest",
+                    primary_metric="f1_macro",
+                    score=0.799,
+                    std=0.030,
+                    fit_seconds=8.2,
+                ),
+            ],
+        )
+        eda = EdaReport(
+            n_rows=100,
+            n_columns=4,
+            target_column="churn",
+            plots=["target_counts.png", "missing_values.png"],
+        )
+        report = build_markdown_report(
+            filename="customers.csv",
+            plan=PlannerPlan(),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+            leaderboard=board,
+            eda=eda,
+        )
+        assert "only one model was trained" not in report.lower()
+        assert "no exploratory charts" not in report.lower()
+        # The two that are true of every run stay put.
+        assert "library defaults" in report
+        assert "single pass of cross-validation" in report
 
     def test_caveats_appear_when_there_are_any(self, cleaning, preprocessing, evaluation):
         evaluation.warnings = ["Reduced to 3 folds: the rarest class has only 3 rows."]

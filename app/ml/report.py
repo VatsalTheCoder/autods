@@ -92,7 +92,7 @@ def build_markdown_report(
         _review(critic),
         _recommendations(narrative),
         _caveats(evaluation),
-        _limitations(),
+        _limitations(eda, leaderboard, explainability),
     ]
     return "\n\n".join(section.strip() for section in sections if section.strip()) + "\n"
 
@@ -722,17 +722,49 @@ def _caveats(evaluation: EvaluationReport) -> str:
     return "\n".join(lines)
 
 
-def _limitations() -> str:
-    """State what this version does not do, so a weak slice is not read as a strong one."""
-    return (
-        "## What this version does not do yet\n\n"
-        "This is the first end-to-end version of the pipeline. It trains a single "
-        "model with a fixed preparation strategy, so treat the score as a baseline "
-        "rather than the best achievable result. Exploratory analysis and plots, "
-        "model comparison across several algorithms, class-imbalance resampling, "
-        "learned feature engineering, and per-prediction explanations are all still "
-        "to come."
+def _limitations(
+    eda: EdaReport | None,
+    leaderboard: Leaderboard | None,
+    explainability: ExplainabilityReport | None,
+) -> str:
+    """State what *this run* did not do, so a weak slice is not read as a strong one.
+
+    Measured against the artifacts rather than asserted. The fixed sentence this
+    replaced was written when the pipeline really did train one model and draw no
+    charts, and it went on claiming that after all three shipped -- so a report
+    containing a four-model leaderboard, six charts and a SHAP decomposition
+    closed by telling the reader those were "still to come". A limitations
+    section that contradicts the body of its own document does more damage to a
+    reader's trust than having a limitation.
+
+    The two entries that are always here are the two that are still true of every
+    run: nothing is tuned (``modeling`` fits every estimator at its library
+    default), and each model is scored by a single pass of cross-validation.
+    """
+    limits = []
+
+    if eda is None or not eda.plots:
+        limits.append("no exploratory charts were produced")
+    if leaderboard is None or len(leaderboard.entries) <= 1:
+        limits.append("only one model was trained, so there is nothing to compare it against")
+    if explainability is None:
+        limits.append("the model's predictions were not explained")
+
+    # True of every run, and worth stating plainly: an untuned default is a
+    # baseline, and a reader is entitled to know the number is not a ceiling.
+    limits.append(
+        "every model was fitted at its library defaults, with no hyper-parameter "
+        "search, so each score is a baseline rather than the best that model can do"
     )
+    limits.append(
+        "each model was scored by a single pass of cross-validation, which is why "
+        "two models finishing within a fold's spread of each other cannot be "
+        "separated -- repeated or nested cross-validation would be needed for that"
+    )
+
+    lines = ["## What this run does not tell you", ""]
+    lines.extend(f"- {limit.capitalize()}." for limit in limits)
+    return "\n".join(lines)
 
 
 def _count(n: int, noun: str) -> str:
