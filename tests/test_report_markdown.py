@@ -17,6 +17,7 @@ from app.ml.contracts import (
     ClusteringReport,
     ClusterProfile,
     ColumnStatistics,
+    ConcentratedFoldError,
     CorrelationPair,
     DroppedColumn,
     DtypeCorrection,
@@ -894,3 +895,90 @@ class TestTheBaselineRowIsMarked:
         )
         assert "Baseline (most frequent class) *(baseline)*" in report
         assert "never the model that gets served" in report
+
+
+class TestFoldVarianceIsDiagnosed:
+    """The report should say *why* the folds disagree, when it knows.
+
+    Before this, every spread got the same closing sentence -- "more data would
+    tighten it". On the Ames run that was the opposite of the truth: two partial
+    sales out of 1,460 produced the spread, and no number of additional houses
+    would have removed them.
+    """
+
+    @pytest.fixture
+    def concentrated(self) -> ConcentratedFoldError:
+        return ConcentratedFoldError(
+            fold=3,
+            metric="r2",
+            score=0.6905,
+            median_score=0.8878,
+            n_test_rows=292,
+            n_dominant_rows=2,
+            dominant_error_share=0.64,
+            score_without_dominant=0.9010,
+            note=(
+                "Fold 3 scored 0.6905 against a median of 0.8878 across the other "
+                "folds. 2 of its 292 held-out rows produce 64% of its squared error, "
+                "so the gap is those records rather than the size of the dataset -- "
+                "more rows would not close it."
+            ),
+        )
+
+    @pytest.fixture
+    def diagnosed(self, cleaning, preprocessing, evaluation, concentrated) -> str:
+        evaluation.task_type = "regression"
+        evaluation.concentrated_fold_error = concentrated
+        return build_markdown_report(
+            filename="train.csv",
+            plan=PlannerPlan(),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+
+    def test_the_diagnosis_replaces_the_generic_advice(self, diagnosed):
+        assert "more rows would not close it" in diagnosed
+        assert "More data would tighten it" not in diagnosed
+
+    def test_the_offending_fold_is_marked_in_the_table(self, diagnosed):
+        line = next(ln for ln in diagnosed.splitlines() if ln.startswith("| 3 |"))
+        assert "←" in line
+
+    def test_no_other_fold_is_marked(self, diagnosed):
+        marked = [ln for ln in diagnosed.splitlines() if ln.startswith("| ") and "←" in ln]
+        assert len(marked) == 1
+
+    def test_it_does_not_present_the_reduced_score_as_a_result(self, diagnosed):
+        """Removing the rows measures their effect; it is not a better number."""
+        assert "not a licence to delete them" in diagnosed
+
+    def test_the_measurement_is_not_repeated_on_the_page(self, diagnosed):
+        """It belongs under Result; the fold table points back to it."""
+        assert diagnosed.count("more rows would not close it") == 1
+
+    def test_an_ordinary_run_keeps_the_plain_note(self, markdown):
+        assert "←" not in markdown
+        assert "more rows would not close it" not in markdown
+
+
+class TestTheSplitIsDisclosed:
+    """ "5-fold KFold" does not say whether the rows were shuffled first."""
+
+    def test_a_shuffled_split_names_its_seed(self, cleaning, preprocessing, evaluation):
+        evaluation.shuffled = True
+        evaluation.random_seed = 42
+        report = build_markdown_report(
+            filename="x.csv",
+            plan=PlannerPlan(),
+            cleaning=cleaning,
+            preprocessing=preprocessing,
+            evaluation=evaluation,
+        )
+        assert "shuffled before being split" in report
+        assert "random seed 42" in report
+
+    def test_an_unshuffled_split_says_so(self, markdown):
+        """The riskier case, so it must be the louder statement."""
+        assert "not** shuffled" in markdown
+        assert "contiguous slice" in markdown
