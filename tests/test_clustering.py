@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from app.core.config import get_settings
 from app.ml.clustering import choose_method, profile_clusters, run_clustering
 from app.ml.contracts import PlannerPlan
 
@@ -196,3 +197,48 @@ class TestReproducibility:
         second = run_clustering(three_groups, target="churn")
         assert first.report.k == second.report.k
         assert np.array_equal(first.labels, second.labels)
+
+
+class TestLargeFramesAreSampledBeforeFitting:
+    """The whole step is capped, not just the search for k.
+
+    The k search always ran on a sample; the final fit ran on every row. For
+    K-Means that was survivable -- it drops into BLAS, and 100,000 rows took
+    5.6s. K-Prototypes loops in Python: 9.4s at 1,000 rows, 177s at 20,000 and
+    755s at 100,000, so a mixed-type upload could spend twelve minutes here
+    producing labels that are never allowed to become model features.
+
+    Capping the step makes that cost flat -- measured at 106s for 20,000 rows
+    and 103s for 100,000, where before it grew with every row. These tests
+    assert the mechanism rather than the timings, which would be flaky.
+    """
+
+    def _frame(self, n: int) -> pd.DataFrame:
+        rng = np.random.default_rng(0)
+        return pd.DataFrame(
+            {
+                "a": rng.normal(0, 1, n),
+                "b": rng.normal(5, 2, n),
+                "target": rng.normal(0, 1, n),
+            }
+        )
+
+    def test_a_frame_over_the_cap_is_sampled_down_to_it(self):
+        cap = get_settings().cluster_sample_size
+        result = run_clustering(self._frame(cap * 3), target="target", plan=PlannerPlan())
+        assert sum(profile.size for profile in result.report.profiles) == cap
+
+    def test_the_report_says_the_clusters_came_from_a_sample(self):
+        """A reader comparing a group's size to the dataset must not be misled."""
+        cap = get_settings().cluster_sample_size
+        result = run_clustering(self._frame(cap * 3), target="target", plan=PlannerPlan())
+        note = next(w for w in result.report.warnings if "random sample" in w)
+        assert f"{cap:,} rows" in note
+        assert f"{cap * 3:,}" in note
+
+    def test_a_frame_under_the_cap_is_left_alone(self):
+        """Sampling must not touch the datasets that never had the problem."""
+        n = get_settings().cluster_sample_size // 5
+        result = run_clustering(self._frame(n), target="target", plan=PlannerPlan())
+        assert sum(profile.size for profile in result.report.profiles) == n
+        assert not any("random sample" in w for w in result.report.warnings)

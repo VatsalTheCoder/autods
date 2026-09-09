@@ -125,15 +125,42 @@ def run_clustering(
     if not numeric and not categorical:
         return _skipped("No columns suitable for clustering.")
 
+    # Sample before anything expensive, not just before the search for k.
+    #
+    # The k search has always run on a sample; the final fit ran on every row,
+    # which is what made a large mixed-type dataset stall here. K-Prototypes
+    # loops in Python where K-Means drops into BLAS: 9.4s at 1,000 rows, and
+    # 20,000 had not finished after fifteen minutes on the machine this was
+    # measured on. K-Means did 100,000 rows in 5.6s.
+    #
+    # Sampling the whole step is sound for the reason clustering is allowed to
+    # be this forgiving in the first place: it is descriptive only. The labels
+    # never become features (spec 9), so no row *needs* one -- they exist to
+    # describe the groups and colour a scatter plot, and a random sample of
+    # 5,000 rows describes the same groups the full frame would.
+    n_available = len(features)
+    if n_available > settings.cluster_sample_size:
+        features = features.sample(
+            n=settings.cluster_sample_size,
+            random_state=settings.random_seed,
+        )
+        warnings.append(
+            f"Clusters were found in a random sample of {len(features):,} rows "
+            f"drawn from {n_available:,}. The groups describe the dataset; the "
+            "row counts within them are proportions, not totals."
+        )
+
     method, override = choose_method(features, plan.clustering_method)
     if override:
         logger.info("Clustering method overridden: %s", override)
 
-    k_max = min(settings.cluster_k_max, len(frame) // _MIN_ROWS_PER_CLUSTER)
+    # Against the rows actually being clustered, not the rows uploaded: k has to
+    # be feasible for the frame the fit will see.
+    k_max = min(settings.cluster_k_max, len(features) // _MIN_ROWS_PER_CLUSTER)
     if k_max < settings.cluster_k_min:
         return _skipped(
-            f"Only {len(frame)} rows: too few to split into groups of at least "
-            f"{_MIN_ROWS_PER_CLUSTER}."
+            f"Only {len(features)} rows: too few to split into groups of at "
+            f"least {_MIN_ROWS_PER_CLUSTER}."
         )
 
     try:
