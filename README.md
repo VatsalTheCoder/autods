@@ -96,6 +96,8 @@ deployment needs no code change — which is the property the spec was protectin
 
 ## Build progress
 
+<!-- build-status:start -->
+
 - [x] **Section 0** — Skeleton: Docker Compose, config, S3 abstraction, health check
 - [x] **Section 1** — Upload: CSV to S3, jobs and artifacts tables
 - [x] **Section 2** — LLM client: structured output, rate limiting, token accounting
@@ -108,10 +110,13 @@ deployment needs no code change — which is the property the spec was protectin
 - [x] **Section 9** — Critic and report *(milestone M5)*
 - [x] **Section 10** — RAG chat *(milestone M6)*
 - [ ] **Section 11** — AWS deployment *(milestone M7)* — runbook written, hosting outstanding
-- [ ] **Section 12** — Testing and documentation — end-to-end tests now run in CI; diagrams outstanding
+- [ ] **Section 12** — Testing and documentation — diagrams and API reference written; consolidation pass outstanding
 
-This list is maintained by hand in three places — here, the app's landing page, and the progress
-report — so if they ever disagree, the repository is the one to trust.
+<!-- build-status:end -->
+
+Generated from `ui/build_status.py` by `scripts/sync_build_status.py`, which also renders
+the landing page's table; a test fails if this block drifts from it. The published progress
+report is updated by hand, so if it ever disagrees, the repository is the one to trust.
 
 ---
 
@@ -218,4 +223,4 @@ on free-tier latency alone; the scores do not. Per-dataset targets and exclusion
 
 ## Context
 
-Final-year BSc Computer Science capstone project. Solo build.
+BSc Computer Science project, University of Delhi. Solo build.
