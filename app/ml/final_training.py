@@ -39,6 +39,7 @@ from app.agents.schema_models import TaskType
 from app.core.config import get_settings
 from app.ml.contracts import FeatureStrategy, FinalModelInfo, PredictorColumn
 from app.ml.modeling import build_pipeline, build_resampler, build_roster
+from app.ml.target import TargetTransform
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ def train_final_model(
     strategy: FeatureStrategy | None = None,
     primary_metric: str = "",
     cv_score: float | None = None,
+    target_transform: TargetTransform | None = None,
     random_seed: int | None = None,
 ) -> FinalModel:
     """Refit the leaderboard's winner on every row and describe the result.
@@ -76,6 +78,16 @@ def train_final_model(
     is cloned before use, so the object on the pipeline state leaves this function
     exactly as unfitted as it arrived -- the artifact written in the preprocessing
     node stays the evidence it was registered to be.
+
+    ``target_transform`` is the one cross-validation used, passed in rather than
+    recomputed. Recomputing would *probably* agree -- it is a pure function of the
+    target column and both see the same rows -- but "probably" is the wrong
+    standard for the difference between the model that was measured and the model
+    that gets served. Passing it makes the parity a fact rather than a
+    coincidence, and leaving it out is what this function used to do: the winner
+    was ranked as ``TransformedTargetRegressor(LinearRegression)`` and served as a
+    bare ``LinearRegression``, which is a different model wearing the ranked one's
+    score.
     """
     settings = get_settings()
     if random_seed is None:
@@ -108,6 +120,7 @@ def train_final_model(
         random_seed=random_seed,
         estimator=candidate.estimator,
         resampler=resampler,
+        target_transform=target_transform,
     )
 
     X = frame[features]
