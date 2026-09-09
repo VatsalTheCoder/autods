@@ -50,11 +50,10 @@ from app.services.artifacts import (
 )
 from app.services.csv_validation import (
     CSVValidationError,
-    inspect_csv,
+    inspect_csv_frame,
     validate_filename,
     validate_size,
 )
-from app.services.profiling import read_csv_frame
 from app.worker.tasks import enqueue_pipeline
 
 logger = logging.getLogger(__name__)
@@ -80,7 +79,7 @@ def upload_csv(
         validate_filename(file.filename)
         data = file.file.read()
         validate_size(len(data), settings.max_upload_mb)
-        summary = inspect_csv(data)
+        summary, frame = inspect_csv_frame(data)
     except CSVValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -144,7 +143,10 @@ def upload_csv(
     # silently otherwise, so this can never fail an upload that already stored a
     # valid file.
     report = detect_schema(
-        read_csv_frame(data),
+        # The frame validation already parsed, not a second parse of the same
+        # bytes: on a large upload that was the single most expensive thing this
+        # request did, and it produced a frame identical to the one above.
+        frame,
         client=llm,
         on_usage=make_usage_recorder(db, job.id, SCHEMA_AGENT),
     )

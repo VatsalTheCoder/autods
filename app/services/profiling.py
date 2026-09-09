@@ -51,9 +51,10 @@ _MAX_CATEGORICAL_UNIQUE = 20
 def read_csv_frame(data: bytes) -> pd.DataFrame:
     """Parse validated CSV bytes into a DataFrame for profiling.
 
-    The upload route has already run ``inspect_csv`` on these bytes, so parsing
-    is known to succeed; this just re-materialises the frame that validation
-    discarded, keeping profiling decoupled from the validation step.
+    Used by the worker, which fetches the stored object and genuinely has only
+    bytes. The upload request does *not* come through here: it keeps the frame
+    ``inspect_csv_frame`` already parsed, because re-materialising a frame that
+    validation had just built was a second full parse of the same upload.
 
     Delegates to ``csv_validation.read_frame`` rather than calling pandas
     directly, so that the frame profiled here is byte-for-byte the frame the
