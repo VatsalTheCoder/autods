@@ -9,8 +9,10 @@ only the environment differs.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+
+from app.core.secrets import secrets_source
 
 
 class Settings(BaseSettings):
@@ -39,16 +41,47 @@ class Settings(BaseSettings):
     )
 
     # ---- Object storage -------------------------------------------------
-    # Locally this points at the MinIO container. On AWS, leave s3_endpoint_url
-    # unset and boto3 talks to real S3 using the instance's IAM role.
+    # Locally this points at the MinIO container. On AWS, set S3_ENDPOINT_URL to
+    # the empty string -- see the validator below for why "unset" is not the way
+    # to say that -- and boto3 talks to real S3 using the instance's IAM role.
     s3_bucket: str = "autods-artifacts"
     s3_endpoint_url: str | None = Field(
         default="http://localhost:9000",
-        description="Set for MinIO; leave unset (None) to use real AWS S3.",
+        description="Set for MinIO; set empty (or None) to use real AWS S3.",
     )
+
+    @field_validator("s3_endpoint_url", mode="before")
+    @classmethod
+    def _empty_endpoint_means_real_s3(cls, value: object) -> object:
+        """Treat an empty S3_ENDPOINT_URL as "unset", so real S3 is reachable from the environment.
+
+        The default here is MinIO, which is right locally and wrong everywhere
+        else. Every other setting can be changed by exporting a variable, but
+        "no endpoint" had no spelling: an unset variable falls back to the MinIO
+        default, and an empty one used to arrive as "" and go straight into
+        boto3's ``endpoint_url``, which rejects it. That left no way to select
+        real S3 without editing code -- the one thing spec section 14 promises
+        deployment would not need.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     s3_region: str = "us-east-1"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+
+    # ---- Secrets Manager ------------------------------------------------
+    # The name of a Secrets Manager secret holding a JSON object of settings --
+    # in practice google_api_key and database_url, the two values that must not
+    # be readable from `docker inspect`. Unset locally, which disables the
+    # lookup entirely. Declared here (rather than only read from the
+    # environment) so it is visible in the settings object and so extra="ignore"
+    # does not silently swallow a typo'd spelling of it.
+    aws_secrets_id: str | None = Field(
+        default=None,
+        description="Secrets Manager secret name; unset means configure from the environment only.",
+    )
 
     # ---- API ------------------------------------------------------------
     api_host: str = "0.0.0.0"  # noqa: S104 - binding all interfaces is correct in a container
@@ -237,6 +270,31 @@ class Settings(BaseSettings):
     @property
     def is_local(self) -> bool:
         return self.environment == "local"
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Add Secrets Manager as the lowest-priority source.
+
+        Order is highest priority first. The secret sits below the environment
+        and below .env deliberately -- see ``app/core/secrets`` for why an
+        explicit environment variable is allowed to win. When AWS_SECRETS_ID is
+        unset the extra source returns an empty dict without touching boto3, so
+        this costs local runs nothing.
+        """
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            secrets_source(settings_cls),
+            file_secret_settings,
+        )
 
 
 @lru_cache

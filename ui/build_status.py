@@ -94,7 +94,12 @@ SECTIONS: tuple[Section, ...] = (
         "AWS deployment",
         IN_PROGRESS,
         milestone="M7",
-        note="runbook written, hosting outstanding",
+        # Deliberately says "never run", not "not finished". The deployment
+        # config, scripts and guide are all written and merged; what has never
+        # happened is executing any of it against a real AWS account, and a
+        # reader deciding whether to trust docs/DEPLOYMENT.md needs that fact
+        # rather than a percentage.
+        note="config and guide written; never run against real AWS",
     ),
     Section(
         12,

@@ -53,5 +53,24 @@ def test_s3_endpoint_can_be_unset_for_real_aws(monkeypatch):
     assert settings.s3_endpoint_url is None
 
 
+def test_empty_s3_endpoint_env_var_selects_real_aws(monkeypatch):
+    """Selecting real S3 has to be possible *from the environment*, not just in Python.
+
+    The test above passes ``s3_endpoint_url=None`` as a keyword, which no
+    deployment can do. Through the environment the only spellings available are
+    "absent" -- which falls back to the MinIO default -- and "empty", which used
+    to arrive as "" and be handed to boto3's endpoint_url verbatim. So empty is
+    made to mean None, and this is the test that deployment relies on.
+    """
+    monkeypatch.setenv("S3_ENDPOINT_URL", "")
+    assert Settings(_env_file=None).s3_endpoint_url is None
+
+
+def test_absent_s3_endpoint_still_defaults_to_minio(monkeypatch):
+    """The local default must survive the change above."""
+    monkeypatch.delenv("S3_ENDPOINT_URL", raising=False)
+    assert Settings(_env_file=None).s3_endpoint_url == "http://localhost:9000"
+
+
 def test_get_settings_is_cached():
     assert get_settings() is get_settings()
