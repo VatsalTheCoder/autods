@@ -143,6 +143,9 @@ services:
       # Same reason: a test asserts the README's build-progress list still
       # matches ui/build_status.py, and it can only read a README that is here.
       - ./README.md:/code/README.md
+      # And again: a test asserts Streamlit's maxUploadSize still matches the
+      # API's max_upload_mb, which it can only do if it can read the file.
+      - ./.streamlit:/code/.streamlit
       # The example datasets and the scripts that generate them. Kept out of the
       # image -- they are development material, not something a deployed
       # container should carry -- but reachable here so a generator can be run

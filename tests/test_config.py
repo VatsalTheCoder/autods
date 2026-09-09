@@ -74,3 +74,26 @@ def test_absent_s3_endpoint_still_defaults_to_minio(monkeypatch):
 
 def test_get_settings_is_cached():
     assert get_settings() is get_settings()
+
+
+class TestTheUploadCapIsStatedOnce:
+    """Streamlit enforces its own limit, and it has to match the API's.
+
+    Two numbers in two files describing one rule. If Streamlit's is the larger,
+    the browser accepts a file the API then rejects with a 422 -- after the user
+    has waited for the whole upload. If it is smaller, the API's cap is dead
+    letter and the real limit is one nobody documented.
+
+    The cap is at the hardware's limit rather than a policy number with room
+    behind it (see docs/RUNBOOK.md), which is exactly why a silent drift between
+    the two would be worth catching.
+    """
+
+    def test_streamlit_and_the_api_agree_on_the_limit(self):
+        import re
+        from pathlib import Path
+
+        config = Path(__file__).resolve().parents[1] / ".streamlit" / "config.toml"
+        match = re.search(r"^maxUploadSize\s*=\s*(\d+)", config.read_text(), re.M)
+        assert match, "no maxUploadSize in .streamlit/config.toml"
+        assert int(match.group(1)) == get_settings().max_upload_mb

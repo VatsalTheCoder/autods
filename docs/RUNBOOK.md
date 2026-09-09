@@ -287,6 +287,51 @@ Two caveats worth knowing:
   domain, or the AWS deployment.
 - **The laptop is the server.** Close it and the URL stops working.
 
+## How large a file can it take?
+
+Measured on the development machine — a 4 GiB colima VM on an 8 GiB Mac, with
+Postgres, Redis, MinIO, the worker and the UI all sharing that memory. The file
+is the PaySim fraud dataset: 11 columns, ~6.3M rows, 471 MB, with two
+high-cardinality ID columns.
+
+**Parsing alone**, bytes in and DataFrame out:
+
+| file | rows | time | peak RSS |
+|---|---|---|---|
+| 100 MB | 1.3M | 1.7s | 644 MB |
+| 201 MB | 2.6M | 4.7s | 1,204 MB |
+| 302 MB | 3.9M | 6.5s | 1,491 MB |
+| 403 MB | 5.2M | 9.3s | 1,932 MB |
+| 449 MB | — | — | **OOM-killed** |
+
+**A real `POST /upload`**, which also stores the object and runs schema
+detection, and therefore costs more than the parse:
+
+| file | result | time | peak RSS |
+|---|---|---|---|
+| 100 MB | 201 | 14.6s | 1,285 MB |
+| 151 MB | 201 | 26.6s | 1,545 MB |
+| 201 MB | 201 | 27.4s | 1,851 MB |
+| 302 MB | **OOM-killed** | — | — |
+
+Two things follow, and the second one is the surprise.
+
+**A CSV costs roughly 6x its size on disk as peak memory.** Pandas 3's string
+dtype is what makes that 6x rather than the 30x it would have been under the old
+object dtype — those two ID columns would otherwise have sunk it on their own.
+
+**The 200 MB cap is not conservative — it is at the limit.** An upload at the cap
+peaks at 1.85 GB against a wall of about 2 GB. Raising the cap does not admit
+larger files; it converts a clean `422 File too large` into an OOM-killed
+container, which is a worse failure in every respect. The 471 MB dataset cannot
+be ingested on this hardware, and that is a memory fact, not a policy choice.
+
+Raising the ceiling for real means not holding the raw bytes and the parsed
+frame at the same moment — streaming the upload to object storage and parsing
+from there — which is a larger change than the cap it would replace. Note that
+the deployment target in `docs/DEPLOYMENT.md` is a t3.medium, which also has
+4 GB, so these numbers carry over rather than being a laptop-only limitation.
+
 ## Shutdown
 
 ```bash
