@@ -240,3 +240,105 @@ class TestATimeColumnThatCountsRatherThanDates:
             time_column="step",
         )
         assert result.cv_strategy == "TimeSeriesSplit"
+
+
+class TestATimestampIsNeverSplitAcrossAFoldBoundary:
+    """Sorting by time makes positions meaningful; it does not make them safe.
+
+    ``TimeSeriesSplit`` slices by position, so a boundary can land in the middle
+    of a run of equal timestamps -- and then the newest training row and the
+    oldest validation row carry the same instant. On 30 rows stamped 1, 2 and 3
+    ten times each, three of five folds did exactly that.
+
+    Whether that is leakage depends on the data: rows sharing a timestamp because
+    they share a batch, a transaction or a daily aggregate make the score
+    optimistic; independent observations under a coarse stamp do not. The
+    evaluation cannot tell which, so it takes the reading that cannot flatter the
+    model.
+    """
+
+    @staticmethod
+    def _boundaries(times, folds):
+        return [(times[train].max(), times[test].min()) for train, test in folds]
+
+    def test_the_case_from_the_review_has_no_overlap(self):
+        from app.ml.modeling import _folds_without_split_timestamps
+
+        times = np.array([1] * 10 + [2] * 10 + [3] * 10)
+        folds, _dropped = _folds_without_split_timestamps(times, 5)
+        assert folds, "every fold was dropped"
+        for last_train, first_test in self._boundaries(times, folds):
+            assert last_train < first_test
+
+    def test_a_fold_that_cannot_be_repaired_is_dropped_not_reported(self):
+        """Advancing the boundary consumes a window that is one timestamp."""
+        from app.ml.modeling import _folds_without_split_timestamps
+
+        times = np.array([1] * 10 + [2] * 10 + [3] * 10)
+        folds, dropped = _folds_without_split_timestamps(times, 5)
+        assert dropped == 3
+        assert len(folds) == 2
+
+    def test_tied_rows_go_into_training_not_validation(self):
+        """Forward, so a fold still means 'trained up to T, validated after T'."""
+        from app.ml.modeling import _folds_without_split_timestamps
+
+        times = np.array([1] * 10 + [2] * 10 + [3] * 10)
+        folds, _ = _folds_without_split_timestamps(times, 5)
+        train, test = folds[0]
+        # Every row stamped 1 is on the training side; none leaked into test.
+        assert (times[train] == 1).all()
+        assert 1 not in set(times[test].tolist())
+
+    def test_distinct_timestamps_keep_every_fold(self):
+        """The ordinary case must not lose folds to a guard it does not need."""
+        from app.ml.modeling import _folds_without_split_timestamps
+
+        times = np.arange(60)
+        folds, dropped = _folds_without_split_timestamps(times, 5)
+        assert dropped == 0
+        assert len(folds) == 5
+        for last_train, first_test in self._boundaries(times, folds):
+            assert last_train < first_test
+
+    def test_a_real_run_reports_the_folds_it_actually_ran(self):
+        frame = pd.DataFrame(
+            {
+                "t": [1] * 10 + [2] * 10 + [3] * 10,
+                "x": np.arange(30, dtype=float),
+                "y": np.arange(30, dtype=float),
+            }
+        )
+        recipe = build_preprocessor(frame, target="y", task_type="regression")
+        result = cross_validate_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            time_column="t",
+            cv_folds=5,
+            random_seed=0,
+        )
+        assert result.n_folds == len(result.folds) == 2
+        assert any("dropped" in w for w in result.warnings)
+
+    def test_one_timestamp_everywhere_says_so_rather_than_pretending(self):
+        """Nothing can be separated; the report must not imply otherwise."""
+        frame = pd.DataFrame(
+            {
+                "t": [7] * 30,
+                "x": np.arange(30, dtype=float),
+                "y": np.arange(30, dtype=float),
+            }
+        )
+        recipe = build_preprocessor(frame, target="y", task_type="regression")
+        result = cross_validate_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            time_column="t",
+            cv_folds=5,
+            random_seed=0,
+        )
+        assert any("same instant" in w for w in result.warnings)

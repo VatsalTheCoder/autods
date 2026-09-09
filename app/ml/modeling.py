@@ -643,6 +643,7 @@ def cross_validate_model(
             random_seed=random_seed,
             warnings=warnings,
             time_ordered=time_ordered,
+            times=frame[time_column] if time_ordered and time_column else None,
         )
     else:
         n_folds, strategy = splitter.get_n_splits(), type(splitter).__name__
@@ -789,6 +790,7 @@ def run_leaderboard(
         random_seed=random_seed,
         warnings=warnings,
         time_ordered=time_ordered,
+        times=frame[time_column] if time_ordered and time_column else None,
     )
 
     # Every candidate gets the same treatment of the target, for the same reason
@@ -967,6 +969,72 @@ def _summarise_folds(folds: list[FoldScore]) -> dict[str, MetricSummary]:
     return summary
 
 
+class _FixedSplits:
+    """Splits decided once and replayed, in scikit-learn's splitter shape.
+
+    Computed up front rather than lazily so the fold count the report states is
+    the fold count that ran, and so every candidate in the roster is handed
+    byte-identical splits rather than splits that merely agree by construction.
+    """
+
+    def __init__(self, splits: list[tuple[np.ndarray, np.ndarray]]) -> None:
+        self._splits = splits
+
+    def get_n_splits(self, X=None, y=None, groups=None) -> int:  # noqa: N803, ARG002
+        return len(self._splits)
+
+    def split(self, X=None, y=None, groups=None):  # noqa: N803, ARG002
+        for train_index, test_index in self._splits:
+            yield train_index.copy(), test_index.copy()
+
+
+def _folds_without_split_timestamps(
+    times: np.ndarray, n_folds: int
+) -> tuple[list[tuple[np.ndarray, np.ndarray]], int]:
+    """TimeSeriesSplit's folds, with each boundary moved off a shared timestamp.
+
+    ``TimeSeriesSplit`` slices by position. Ordering the rows by time makes those
+    positions meaningful, but nothing stops a boundary landing in the *middle* of
+    a run of equal timestamps -- and then the newest training row and the oldest
+    validation row carry the same instant. On 30 rows timestamped 1, 2 and 3 ten
+    times each, three of five folds did exactly that.
+
+    Whether that is leakage depends on the data. If rows sharing a timestamp are
+    causally linked -- one batch, one transaction, one daily aggregate -- the
+    model is scored on siblings of rows it trained on and the score is
+    optimistic. If they are independent observations that happen to share a
+    coarse stamp, it is ordinary. The evaluation cannot tell which, so it takes
+    the reading that cannot be optimistic.
+
+    Boundaries move **forward**, putting a tied block wholly into training. Each
+    fold then means what it says: trained on everything up to and including some
+    instant, validated strictly after it. Moving them backwards would work
+    equally well against overlap but would grow the validation set with rows the
+    schedule meant for training.
+
+    A fold whose entire validation window is one timestamp cannot be repaired
+    this way -- advancing the boundary consumes it -- so it is dropped and
+    counted rather than being silently reported as a fold that ran.
+    """
+    inner = TimeSeriesSplit(n_splits=n_folds)
+    n_rows = len(times)
+    folds: list[tuple[np.ndarray, np.ndarray]] = []
+    dropped = 0
+
+    for _, test_index in inner.split(np.arange(n_rows)):
+        boundary = int(test_index[0])
+        end = int(test_index[-1]) + 1
+        # Advance while the row behind the boundary shares its timestamp.
+        while boundary < end and times[boundary] == times[boundary - 1]:
+            boundary += 1
+        if boundary >= end:
+            dropped += 1
+            continue
+        folds.append((np.arange(boundary), np.arange(boundary, end)))
+
+    return folds, dropped
+
+
 def _make_splitter(
     y: pd.Series,
     *,
@@ -975,7 +1043,8 @@ def _make_splitter(
     random_seed: int,
     warnings: list[str],
     time_ordered: bool = False,
-) -> tuple[int, KFold | StratifiedKFold | TimeSeriesSplit, str]:
+    times: pd.Series | None = None,
+) -> tuple[int, KFold | StratifiedKFold | TimeSeriesSplit | _FixedSplits, str]:
     """Choose the splitter and a fold count the data can actually support.
 
     ``time_ordered`` overrides everything below it. When the user has named a
@@ -1012,7 +1081,37 @@ def _make_splitter(
         # everything before its test window, so the first window must have
         # something behind it.
         n_folds = max(2, min(n_folds, n_rows - 1))
-        splitter = TimeSeriesSplit(n_splits=n_folds)
+        splitter: KFold | StratifiedKFold | TimeSeriesSplit | _FixedSplits = TimeSeriesSplit(
+            n_splits=n_folds
+        )
+
+        # Position-based folds can put the same timestamp on both sides of a
+        # boundary; ``_folds_without_split_timestamps`` moves the boundary off
+        # it. Needs the ordered timestamps, so a caller that cannot supply them
+        # keeps the plain splitter and the report says nothing it cannot back.
+        if times is not None:
+            ordered_times = np.asarray(times)
+            folds, dropped = _folds_without_split_timestamps(ordered_times, n_folds)
+            if len(folds) >= 2:
+                if dropped:
+                    warnings.append(
+                        f"{dropped} of {n_folds} time-ordered folds were dropped "
+                        "because their whole validation window shared a single "
+                        "timestamp, which cannot be validated against earlier "
+                        f"rows without splitting it. {len(folds)} folds were run."
+                    )
+                n_folds = len(folds)
+                splitter = _FixedSplits(folds)
+            else:
+                # Almost every row shares a timestamp with its neighbour. Say so
+                # rather than reporting folds that do not mean what they claim.
+                warnings.append(
+                    "Rows sharing a timestamp could not be kept out of the same "
+                    "fold: too few distinct timestamps to place a boundary "
+                    "between them. Folds may train and validate on rows from the "
+                    "same instant, so a score built on within-timestamp "
+                    "relationships would be optimistic."
+                )
 
         if task_type == "classification":
             empty = [
