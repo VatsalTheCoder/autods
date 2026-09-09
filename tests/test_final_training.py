@@ -220,3 +220,114 @@ class TestResampling:
         )
         assert final.info.resampling == "none"
         assert final.info.warnings
+
+
+class TestTheServedModelIsTheModelThatWasRanked:
+    """The winner's *configuration*, not just its name.
+
+    Cross-validation may fit a skewed regression target through ``log1p`` by
+    wrapping the estimator in a ``TransformedTargetRegressor``. Final training
+    rebuilt the winner from the roster by name and did not wrap it, so the model
+    written to storage was a bare estimator carrying the score of a different
+    one. On a target where the transform matters this is not a rounding
+    difference: the ranked configuration scored r2 1.0 across every fold on
+    ``y = expm1(2x)`` while the served one managed 0.479 against the data it had
+    just been fitted on.
+
+    ``final_training`` already takes this care with SMOTE, for a reason its own
+    comment states -- the served model should be the configuration that was
+    ranked, not a different one that happens to share its name. This asserts the
+    same of the target transform.
+    """
+
+    @staticmethod
+    def _exponential_frame() -> pd.DataFrame:
+        x = np.linspace(0, 5, 300)
+        return pd.DataFrame({"x": x, "y": np.expm1(2 * x)})
+
+    def test_the_transform_cross_validation_used_survives_into_the_final_model(self):
+        from sklearn.compose import TransformedTargetRegressor
+
+        from app.ml.modeling import cross_validate_model
+
+        frame = self._exponential_frame()
+        recipe = build_preprocessor(frame, target="y", task_type="regression")
+        cv = cross_validate_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            random_seed=0,
+        )
+        assert cv.target_transform is not None, "fixture no longer triggers a transform"
+
+        final = train_final_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            model_name=cv.model_name,
+            target_transform=cv.target_transform,
+            random_seed=0,
+        )
+        served = final.pipeline.named_steps["model"]
+        ranked = cv.pipeline_template.named_steps["model"]
+        assert isinstance(served, TransformedTargetRegressor), (
+            "the served model dropped the transform cross-validation measured"
+        )
+        assert type(served) is type(ranked)
+
+    def test_the_served_model_fits_the_data_it_was_trained_on(self):
+        """The symptom a reader would actually notice, stated as a floor.
+
+        A model cannot normally fit its own training data worse than it scored
+        on rows it never saw. When it does, the two are not the same model.
+        """
+        from sklearn.linear_model import LinearRegression
+        from sklearn.metrics import r2_score
+
+        from app.ml.modeling import Candidate, cross_validate_model
+
+        # A linear model on purpose. A tree fits this curve well with or without
+        # the transform, so it cannot tell the two configurations apart -- the
+        # first draft of this test used the roster winner and passed even with
+        # the transform dropped, which is worse than having no test at all.
+        frame = self._exponential_frame()
+        recipe = build_preprocessor(frame, target="y", task_type="regression")
+        cv = cross_validate_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            random_seed=0,
+            candidate=Candidate(name="LinearRegression", estimator=LinearRegression()),
+        )
+        assert cv.target_transform is not None
+        final = train_final_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            model_name="LinearRegression",
+            target_transform=cv.target_transform,
+            random_seed=0,
+        )
+        fitted_r2 = r2_score(frame["y"], final.pipeline.predict(frame[["x"]]))
+        assert fitted_r2 > 0.99, f"served model scores {fitted_r2:.3f} on its own training data"
+
+    def test_no_transform_leaves_the_estimator_bare(self):
+        """The common path must not grow a wrapper it does not need."""
+        from sklearn.compose import TransformedTargetRegressor
+
+        frame = pd.DataFrame({"x": np.linspace(0, 1, 60), "y": np.linspace(0, 1, 60)})
+        recipe = build_preprocessor(frame, target="y", task_type="regression")
+        final = train_final_model(
+            frame,
+            target="y",
+            task_type="regression",
+            preprocessor=recipe.transformer,
+            model_name="Ridge",
+            target_transform=None,
+            random_seed=0,
+        )
+        assert not isinstance(final.pipeline.named_steps["model"], TransformedTargetRegressor)

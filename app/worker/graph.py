@@ -399,6 +399,10 @@ def final_training_node(state: PipelineState) -> dict:
         strategy=state.get("feature_strategy"),
         primary_metric=leaderboard.primary_metric if leaderboard is not None else "",
         cv_score=winner.score if winner is not None else None,
+        # The transform the leaderboard fitted through, not a fresh decision.
+        # Without this the served model is a different configuration from the one
+        # whose score the artifact carries.
+        target_transform=state["cv_result"].target_transform,
     )
     final.info.artifact = FINAL_MODEL_ARTIFACT
 
