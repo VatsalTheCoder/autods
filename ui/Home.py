@@ -32,6 +32,7 @@ from pathlib import Path  # noqa: E402
 sys.path.append(str(Path(__file__).resolve().parent))
 
 from auth import require_access  # noqa: E402
+from build_status import HEADLINE, as_markdown_table  # noqa: E402
 
 require_access()
 
@@ -175,35 +176,18 @@ with st.expander(status_label, expanded=not healthy):
             with st.expander("Raw response"):
                 st.json(payload)
 
-# Hand-maintained, and it went stale once already: this table stopped at
-# Section 7 while Sections 7-10 were merging, so the landing page told visitors
-# feature engineering had not been started for four sections. Every section is
-# listed now, so falling behind shows up as a wrong status rather than a missing
-# row.
+# Rendered from ui/build_status.py, which is the one place the statuses live.
+# It went stale once when it was hand-maintained: the table stopped at Section 7
+# while Sections 7-10 were merging, so for four sections the landing page told
+# visitors feature engineering had not been started.
 #
-# Three places state build status and they have to move together:
-#   - this table
-#   - the "Build progress" list in README.md
-#   - the published progress report (see docs/RUNBOOK.md for the URL)
-with st.expander("Build progress — 11 of 13 sections merged"):
-    st.markdown(
-        """
-| Section | Status |
-|---|---|
-| 0 · Skeleton | ✅ done |
-| 1 · Upload | ✅ done |
-| 2 · LLM client | ✅ done |
-| 3 · Schema detection & human checkpoint | ✅ done |
-| 4 · Background worker | ✅ done |
-| 5 · Vertical slice *(milestone M1)* | ✅ done |
-| 6 · EDA & clustering *(milestone M2)* | ✅ done |
-| 7 · Feature engineering *(milestone M3)* | ✅ done |
-| 8 · Final training, SHAP & prediction *(milestone M4)* | ✅ done |
-| 9 · Critic & report *(milestone M5)* | ✅ done |
-| 10 · RAG chat *(milestone M6)* | ✅ done |
-| 11 · AWS deployment *(milestone M7)* | 🟡 in progress — runbook written, hosting pending |
-| 12 · Testing & docs | 🟡 in progress |
+# The README's "Build progress" list is generated from the same module by
+# scripts/sync_build_status.py, and a test fails if the two drift. The published
+# progress report (REPORT_URL in that module) is artifact HTML and is still
+# updated by hand -- so it stays the one copy that can fall behind.
+with st.expander(f"Build progress — {HEADLINE}"):
+    st.markdown(f"""
+{as_markdown_table()}
 
 See `BUILD_PLAN.md` for the full plan.
-"""
-    )
+""")

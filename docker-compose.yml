@@ -140,6 +140,9 @@ services:
       # Without this the test passes in CI (which has the whole checkout) and
       # fails here, which is the worst way round for a discrepancy to break.
       - ./BUILD_PLAN.md:/code/BUILD_PLAN.md
+      # Same reason: a test asserts the README's build-progress list still
+      # matches ui/build_status.py, and it can only read a README that is here.
+      - ./README.md:/code/README.md
       # The example datasets and the scripts that generate them. Kept out of the
       # image -- they are development material, not something a deployed
       # container should carry -- but reachable here so a generator can be run
