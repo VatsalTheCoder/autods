@@ -775,9 +775,9 @@ class TestRegressionErrorsAreReadNotJustListed:
     def test_a_classification_report_says_nothing_about_it(self, markdown):
         assert "RMSE" not in markdown
 
-    def test_mape_is_shown_as_a_percentage(self):
+    def test_the_percentage_error_is_shown_as_a_percentage(self):
         report = self._report(mae=80.84, rmse=201.76)
-        assert "MAPE" not in report  # absent from the metrics dict above
+        assert "percentage" not in report.lower()  # absent from the metrics dict above
         with_mape = build_markdown_report(
             filename="listings.csv",
             plan=PlannerPlan(),
@@ -793,11 +793,12 @@ class TestRegressionErrorsAreReadNotJustListed:
                 cv_strategy="KFold",
                 n_rows=100,
                 n_features=3,
-                metrics={"mape": MetricSummary(mean=0.4312, std=0.02)},
-                primary_metric="mape",
+                metrics={"median_ape": MetricSummary(mean=0.4312, std=0.02)},
+                primary_metric="median_ape",
             ),
         )
         assert "43.1%" in with_mape
+        assert "Median absolute percentage error" in with_mape
 
 
 class TestTheTargetsTailIsReported:

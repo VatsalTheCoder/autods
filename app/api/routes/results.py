@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -44,7 +45,7 @@ from app.ml.contracts import (
     FinalModelInfo,
     Leaderboard,
 )
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.services.artifacts import (
     CLEANING_ARTIFACT,
     CLUSTERING_ARTIFACT,
@@ -263,7 +264,11 @@ def get_critic(job_id: int, db: Session = Depends(get_db)) -> CriticReport:
     "/jobs/{job_id}/report/pdf",
     summary="The report as a PDF",
     response_class=Response,
-    responses={200: {"content": {"application/pdf": {}}}},
+    responses={
+        200: {"content": {"application/pdf": {}}},
+        202: {"description": "The run has not reached the report yet; poll."},
+        404: {"description": "No such job, or the run finished and rendering failed."},
+    },
 )
 def get_report_pdf(job_id: int, db: Session = Depends(get_db)) -> Response:
     """Serve the rendered report (spec 7.12).
@@ -272,12 +277,19 @@ def get_report_pdf(job_id: int, db: Session = Depends(get_db)) -> Response:
     different media types with different caching and download behaviour, and one
     endpoint that returns either is one endpoint a client has to branch on.
 
-    A 404 here can mean the run has not reached the report yet *or* that
-    rendering failed on a run that otherwise completed -- the PDF is best-effort
-    precisely so a font problem cannot discard a finished analysis. The Markdown
-    at ``/report`` is the authoritative document either way.
+    Two different things can leave this endpoint with no file to serve, and they
+    call for different answers. A run that has not reached the report yet is a
+    client that should poll -- 202, the same thing the Results page is already
+    waiting on. A run that finished without a PDF is a rendering failure that
+    will not resolve by waiting, and no amount of polling will change it -- 404,
+    terminal. Returning 404 for both, which is what this did, told a caller to
+    give up on a report that was thirty seconds away.
+
+    The PDF stays best-effort by design, so a font problem cannot discard a
+    finished analysis. The Markdown at ``/report`` is the authoritative document
+    in either case, which is what both messages point at.
     """
-    _require_job(db, job_id)
+    job = _require_job(db, job_id)
     try:
         data = load_artifact_bytes(db, job_id, REPORT_PDF_ARTIFACT)
     except StorageError as exc:
@@ -285,12 +297,26 @@ def get_report_pdf(job_id: int, db: Session = Depends(get_db)) -> Response:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage is unavailable."
         ) from exc
     if data is None:
+        if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED):
+            # Returned, not raised. 202 is not an error -- the run is doing
+            # exactly what it should -- and routing it through HTTPException
+            # would file a success state under this module's error handling.
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "detail": (
+                        f"Job {job_id} has not reached the report yet (it is "
+                        f"{job.status}). Poll this endpoint, or read the Markdown "
+                        "report at /report once it appears."
+                    )
+                },
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
-                f"Job {job_id} has no PDF report. It may still be running, or "
-                "rendering may have failed -- the Markdown report at /report is "
-                "the authoritative version."
+                f"Job {job_id} finished without a PDF report, so rendering "
+                "failed -- waiting will not produce one. The Markdown report at "
+                "/report is the authoritative version and is unaffected."
             ),
         )
     return Response(

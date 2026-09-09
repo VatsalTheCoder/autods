@@ -23,7 +23,8 @@ Two choices worth stating plainly, because they change how a number reads:
   a tiny or badly skewed dataset that can fail. A missing number with a stated
   reason is honest, a zero is a lie about the model's performance.
 
-The regression set has since gained two more, median absolute error and MAPE,
+The regression set has since gained two more, median absolute error and median
+absolute percentage error,
 for a reason worth stating up front: the spec's four are all absolute or squared
 and therefore all describe the same thing on a heavy-tailed target -- its tail.
 See ``_regression_metrics``.
@@ -145,9 +146,17 @@ def _regression_metrics(y_true: Any, y_pred: Any) -> tuple[dict[str, float], lis
     * **Median absolute error** is the typical miss. Where MAE is pulled upward
       by a handful of large errors, this is not, so the gap between the two is
       itself the diagnosis.
-    * **MAPE** puts the error on the target's own scale. "Out by 81" means
-      nothing without knowing that the median listing costs 106; "out by 43%"
-      means something on its own.
+    * **Median absolute percentage error** puts the error on the target's own
+      scale. "Out by 81" means nothing without knowing that the median listing
+      costs 106; "out by 43%" means something on its own.
+
+      The median of the ratios, not the mean, and for the same reason the row
+      above gives -- but the failure is far worse here, because a ratio has no
+      upper bound. A New York listings file prices some rows at $1; a
+      prediction of $500k against one of them contributes 500,000 to a mean,
+      and the run reported a mean ratio of 61.1, which renders as 6,108%. That
+      is an arithmetically honest number that tells a reader nothing about a
+      typical prediction. The median is unmoved by those rows.
 
     Neither replaces R², which stays the primary metric -- they sit alongside it.
     """
@@ -170,9 +179,14 @@ def _regression_metrics(y_true: Any, y_pred: Any) -> tuple[dict[str, float], lis
     # zero row into a value in the billions. Those rows are excluded and counted
     # instead -- a percentage over 99% of the data, honestly labelled, beats a
     # meaningless number over all of it.
+    #
+    # Excluding exact zeros is not enough on its own, which is why the statistic
+    # is a median. A near-zero true value is undefined in every way that matters
+    # except the arithmetic: it survives this filter and then dominates a mean.
     usable = y_true != 0
     if usable.any():
-        metrics["mape"] = float(np.mean(errors[usable] / np.abs(y_true[usable])))
+        ratios = errors[usable] / np.abs(y_true[usable])
+        metrics["median_ape"] = float(np.median(ratios))
         if not usable.all():
             # Deliberately without the row count. This runs per fold, and each
             # fold holds a different number of zero-valued rows, so a counted
@@ -180,11 +194,14 @@ def _regression_metrics(y_true: Any, y_pred: Any) -> tuple[dict[str, float], lis
             # near-identical caveat per fold. The qualification is what matters;
             # the exact count per fold is not something a reader can act on.
             warnings.append(
-                "MAPE excludes held-out rows whose true value is zero, since a "
-                "percentage of zero is undefined. Every other metric covers them."
+                "Median percentage error excludes held-out rows whose true value "
+                "is zero, since a percentage of zero is undefined. Every other "
+                "metric covers them."
             )
     else:
-        warnings.append("MAPE could not be computed: every held-out target value was zero.")
+        warnings.append(
+            "Median percentage error could not be computed: every held-out target value was zero."
+        )
 
     return metrics, warnings
 

@@ -105,12 +105,12 @@ fails on the first upload.
 **Redis is not in the health response**, because the API does not talk to it. A
 dead Redis presents as jobs sitting in `queued` forever, not as an unhealthy API.
 
-**`/report/pdf` returns `404` for two different situations** — the run has not
-reached the report yet, *and* rendering failed on a run that otherwise completed.
-Only the detail string distinguishes them. PDF rendering is best-effort by design
+**`/report/pdf` answers "not yet" and "never" differently.** A run that has not
+reached the report returns `202` with the state it is actually in, so a client
+knows to keep polling. A run that finished without a PDF returns `404`: rendering
+failed, and waiting will not produce one. PDF rendering is best-effort by design
 so that a font problem cannot discard a finished analysis, and the Markdown at
-`/report` is authoritative either way. A client cannot currently tell "not yet"
-from "never"; this is a known gap.
+`/report` is authoritative in either case.
 
 **Unknown fields on `POST /jobs` are rejected rather than ignored.** `exclude` is
 easy to guess wrong — `include` is the obvious alternative and it is *inverted* —
