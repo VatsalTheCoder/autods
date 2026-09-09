@@ -195,11 +195,28 @@ def _is_text(series: pd.Series) -> bool:
 
 
 def inspect_csv(data: bytes) -> DatasetSummary:
-    """Parse the CSV and describe it, or raise CSVValidationError.
+    """Describe the CSV, or raise CSVValidationError.
 
-    pandas raises a fairly wide range of exceptions on malformed input, and
-    their messages are not written for end users. Everything is translated into
-    a single error type carrying a message worth showing in the UI.
+    Kept as the narrow form for callers that want only the description. Anything
+    that goes on to *use* the frame should call ``inspect_csv_frame`` instead and
+    keep the one this parsed, rather than parsing the same bytes again.
+    """
+    summary, _ = inspect_csv_frame(data)
+    return summary
+
+
+def inspect_csv_frame(data: bytes) -> tuple[DatasetSummary, pd.DataFrame]:
+    """Parse the CSV once, and hand back both the description and the frame.
+
+    The upload request used to parse the same bytes twice: once here to validate
+    and describe them, which then threw the frame away, and again a few lines
+    later so schema detection had something to profile. Two full parses and two
+    copies of the dataset in memory, for one file the user uploaded once -- and
+    the cost scales with the upload, so it is worst exactly when it hurts most.
+
+    Returning the frame is the whole fix. It is not a cache and it is not shared
+    state: the caller owns the frame, and when it goes out of scope so does the
+    memory.
     """
     try:
         frame = read_frame(data)
@@ -233,12 +250,13 @@ def inspect_csv(data: bytes) -> DatasetSummary:
     if duplicates:
         raise CSVValidationError(f"Duplicate column names: {', '.join(duplicates)}")
 
-    return DatasetSummary(
+    summary = DatasetSummary(
         n_rows=int(frame.shape[0]),
         n_columns=int(frame.shape[1]),
         columns=[str(column) for column in frame.columns],
         preview=_json_safe_preview(frame.head(PREVIEW_ROWS)),
     )
+    return summary, frame
 
 
 def _duplicate_headers(data: bytes) -> list[str]:

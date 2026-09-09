@@ -12,6 +12,7 @@ import pytest
 from app.services.csv_validation import (
     CSVValidationError,
     inspect_csv,
+    inspect_csv_frame,
     read_frame,
     validate_filename,
     validate_size,
@@ -161,3 +162,50 @@ class TestNotApplicableLabels:
     def test_the_preview_shows_the_same_values_the_model_will_see(self):
         summary = inspect_csv(b"a,quality\n1,Gd\n2,NA\n")
         assert summary.preview[1]["quality"] == "NA"
+
+
+class TestTheUploadParsesTheFileOnce:
+    """The frame validation builds is the frame schema detection profiles.
+
+    The upload request used to parse the same bytes twice -- once to validate
+    and describe them, throwing the frame away, and again so schema detection
+    had something to profile. Both parses produced the same frame, and the cost
+    scaled with the upload, so it was worst on exactly the files where it hurt.
+
+    Counting parses is the only assertion that holds. Timing it would be flaky,
+    and asserting on memory is worse; a call count either is one or it is not.
+    """
+
+    def test_inspect_csv_frame_hands_back_what_it_parsed(self):
+        summary, frame = inspect_csv_frame(VALID_CSV)
+        assert list(frame.columns) == summary.columns
+        assert len(frame) == summary.n_rows
+
+    def test_the_narrow_form_still_returns_only_a_summary(self):
+        """inspect_csv keeps its old shape for callers that want no frame."""
+        assert inspect_csv(VALID_CSV).columns == inspect_csv_frame(VALID_CSV)[0].columns
+
+    def test_an_upload_reads_the_csv_exactly_once(self, monkeypatch):
+        import app.services.csv_validation as validation
+
+        calls = []
+        real = validation.read_frame
+
+        def counted(data: bytes):
+            calls.append(len(data))
+            return real(data)
+
+        monkeypatch.setattr(validation, "read_frame", counted)
+
+        from fastapi.testclient import TestClient
+
+        from app.api.main import app
+        from app.core.db import database_healthy
+        from app.core.storage import storage_healthy
+
+        if not (database_healthy() and storage_healthy()):
+            pytest.skip("needs Postgres and object storage (`make up`)")
+
+        resp = TestClient(app).post("/upload", files={"file": ("data.csv", VALID_CSV, "text/csv")})
+        assert resp.status_code == 201, resp.text
+        assert len(calls) == 1, f"the upload parsed the CSV {len(calls)} times"
