@@ -38,7 +38,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.storage import download_bytes
+from app.core.storage import download_bytes, object_version
 from app.ml.contracts import FinalModelInfo
 from app.models.artifact import Artifact
 from app.services.artifacts import (
@@ -54,12 +54,23 @@ logger = logging.getLogger(__name__)
 # data, so serving agrees with training by construction.
 _NUMERIC_DTYPES = ("int", "float", "uint")
 
-# Loaded pipelines, keyed by job and by the artifact's byte size. Deserialising a
-# forest for every request would dominate the response time, and the size is
-# enough of a fingerprint to invalidate the entry when a job is re-run and
-# overwrites its model -- a re-run that produced a byte-identical model is one
-# where the cached object is correct anyway.
-_MODEL_CACHE: dict[tuple[int, int], Any] = {}
+# Loaded pipelines, keyed by job and by the stored object's ETag. Deserialising a
+# forest for every request would dominate the response time, so the cache earns
+# its place; what it must not do is outlive the model it holds.
+#
+# The key used to be the artifact's byte size, on the reasoning that a size
+# change is enough to notice a retrain. It is not. Two models of the same kind
+# fitted on the same shape of data serialise to the *same length* -- two
+# LinearRegressions differing only in their coefficients both came to exactly
+# 639 bytes -- so a retrained model is precisely the case the size misses, and
+# the endpoint went on serving the old one having never read the new bytes.
+#
+# The ETag changes when the content changes, which is the property actually
+# needed. It costs one HEAD per prediction request against a model that may be
+# megabytes, and it cannot be replaced by invalidating on write: the worker
+# writes the model in a different process from the API that caches it, so there
+# is no in-process event to hang invalidation on.
+_MODEL_CACHE: dict[tuple[int, str], Any] = {}
 _MODEL_CACHE_LIMIT = 4
 
 
@@ -111,8 +122,17 @@ def load_final_model(db: Session, job_id: int) -> tuple[Any, FinalModelInfo]:
     if artifact is None:
         raise ModelNotReady(f"Job {job_id} has no {FINAL_MODEL_ARTIFACT} artifact.")
 
-    key = (job_id, int(artifact.size_bytes or 0))
-    cached = _MODEL_CACHE.get(key)
+    version = object_version(artifact.s3_key)
+    if version is None:
+        # Unverifiable rather than assumed current: fall through to a real read,
+        # which will raise honestly if the object is genuinely gone.
+        logger.warning(
+            "Could not read the stored version of %s for job %s; loading it fresh",
+            FINAL_MODEL_ARTIFACT,
+            job_id,
+        )
+    key = (job_id, version or "")
+    cached = _MODEL_CACHE.get(key) if version is not None else None
     if cached is None:
         logger.info("Loading %s for job %s from storage", FINAL_MODEL_ARTIFACT, job_id)
         cached = joblib.load(io.BytesIO(download_bytes(artifact.s3_key)))
@@ -120,7 +140,8 @@ def load_final_model(db: Session, job_id: int) -> tuple[Any, FinalModelInfo]:
             # Plain FIFO eviction. The cache exists to make a burst of requests
             # against one job fast, not to serve every job on the machine.
             _MODEL_CACHE.pop(next(iter(_MODEL_CACHE)))
-        _MODEL_CACHE[key] = cached
+        if version is not None:
+            _MODEL_CACHE[key] = cached
 
     return cached, info
 

@@ -30,7 +30,7 @@ from app.services.artifacts import (
 )
 from app.services.profiling import profile_dataset, read_csv_frame, retarget
 from app.worker.graph import build_pipeline_graph
-from app.worker.progress import init_agent_runs, set_job_status
+from app.worker.progress import claim_job, init_agent_runs, set_job_status
 from app.worker.state import PIPELINE_NODES
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,12 @@ def _load_schema(job_id: int, frame: pd.DataFrame) -> SchemaReport:
 def run_pipeline(job_id: int) -> None:
     """Execute the pipeline for one job, end to end, updating status as it goes."""
     logger.info("Pipeline starting for job %s", job_id)
-    set_job_status(job_id, JobStatus.RUNNING)
+    # Claimed, not announced. Two tasks for one job would otherwise both set
+    # RUNNING and then write the same artifact rows and the same S3 keys as each
+    # other -- see ``claim_job``. Losing the claim is a normal outcome, not an
+    # error: the job is already being run by whoever won it.
+    if not claim_job(job_id):
+        return
     init_agent_runs(job_id, PIPELINE_NODES)
 
     try:
