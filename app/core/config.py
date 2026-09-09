@@ -252,9 +252,20 @@ class Settings(BaseSettings):
     cluster_k_min: int = 2
     cluster_k_max: int = 8
 
-    # Clustering every row of a large dataset to pick k is wasted work -- the
-    # silhouette score stabilises long before then. Above this, k selection runs
-    # on a random sample and the chosen k is applied to everything.
+    # Clustering every row of a large dataset is wasted work -- the silhouette
+    # score stabilises long before then. Above this, the whole clustering step
+    # runs on a random sample of the rows.
+    #
+    # This used to bound only the search for k, while the final fit still ran
+    # over every row. For K-Means that was survivable; for K-Prototypes, which
+    # loops in Python rather than dropping into BLAS, it was not. Measured on
+    # this machine: K-Means took 5.6s at 100,000 rows, while K-Prototypes took
+    # 9.4s at 1,000 and had not finished 20,000 after fifteen minutes.
+    #
+    # Sampling the whole step is sound because clustering here is descriptive
+    # only. The labels never become model features (spec 9), so they are not
+    # something every row needs -- they exist to describe the groups and colour
+    # a scatter plot, and a random sample describes the same groups.
     cluster_sample_size: int = 5_000
 
     # Charts are rendered headlessly to PNG. 110 DPI is legible on a laptop
