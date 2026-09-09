@@ -93,6 +93,18 @@ class Settings(BaseSettings):
     api_base_url: str = "http://localhost:8000"
 
     # ---- Uploads --------------------------------------------------------
+    # Measured, not guessed, and deliberately *not* raised -- see
+    # docs/RUNBOOK.md, "How large a file can it take?".
+    #
+    # A CSV costs about 6x its size on disk as peak resident memory while it is
+    # being parsed, and the upload request holds the raw bytes and the parsed
+    # frame at the same time. On a 4 GiB machine sharing room with Postgres,
+    # Redis, MinIO and the worker, the wall is around 2 GB, and an upload at
+    # this cap already peaks at 1.85 GB. A 302 MB file is OOM-killed.
+    #
+    # So this is not a conservative policy number with headroom behind it: it
+    # is within about 8% of what the hardware survives. Raising it does not
+    # admit bigger files, it trades a clean 422 for a killed container.
     max_upload_mb: int = 200
 
     # ---- LLM (Google AI Studio) -----------------------------------------
