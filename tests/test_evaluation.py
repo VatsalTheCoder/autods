@@ -129,7 +129,7 @@ class TestRegressionMetrics:
         )
         # The spec's four, plus the two that describe a *typical* error rather
         # than a squared-error-dominated one.
-        assert set(metrics) == {"mae", "mse", "rmse", "r2", "median_ae", "mape"}
+        assert set(metrics) == {"mae", "mse", "rmse", "r2", "median_ae", "median_ape"}
         assert warnings == []
 
     def test_the_typical_error_is_reported_beside_the_mean_one(self):
@@ -142,22 +142,40 @@ class TestRegressionMetrics:
         assert metrics["median_ae"] == 1.0
         assert metrics["mae"] > 50
 
-    def test_mape_is_a_ratio_of_the_true_value(self):
+    def test_the_percentage_error_is_a_ratio_of_the_true_value(self):
         y_true = np.array([100.0, 200.0, 400.0])
         y_pred = np.array([110.0, 180.0, 440.0])  # 10%, 10%, 10%
         metrics, _ = fold_metrics(
             y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
         )
-        assert metrics["mape"] == pytest.approx(0.10)
+        assert metrics["median_ape"] == pytest.approx(0.10)
 
-    def test_a_zero_true_value_is_excluded_from_mape_and_reported(self):
+    def test_one_near_zero_row_does_not_dominate_the_percentage_error(self):
+        """The reason this is a median and not a mean.
+
+        A New York listings file prices some rows at $1. A prediction of $500k
+        against one of them is a ratio of 500,000, and the mean of the ratios
+        came out at 61.1 -- rendered as 6,108%, arithmetically honest and
+        useless. Every other row here is out by 10%, which is what a reader
+        needs to be told.
+        """
+        y_true = np.array([1.0, 100.0, 200.0, 400.0, 800.0])
+        y_pred = np.array([500_000.0, 110.0, 180.0, 440.0, 880.0])
+        metrics, _ = fold_metrics(
+            y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
+        )
+        assert metrics["median_ape"] == pytest.approx(0.10)
+        # The mean this replaced, for the contrast the docstring describes.
+        assert np.mean(np.abs(y_true - y_pred) / np.abs(y_true)) > 1_000
+
+    def test_a_zero_true_value_is_excluded_and_reported(self):
         """scikit-learn's own MAPE substitutes an epsilon and returns billions."""
         y_true = np.array([0.0, 100.0, 200.0])
         y_pred = np.array([5.0, 110.0, 180.0])
         metrics, warnings = fold_metrics(
             y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
         )
-        assert metrics["mape"] == pytest.approx(0.10)
+        assert metrics["median_ape"] == pytest.approx(0.10)
         assert any("percentage of zero is undefined" in w for w in warnings)
         # Every other metric still covers the zero row.
         assert metrics["mae"] == pytest.approx((5 + 10 + 20) / 3)
@@ -177,13 +195,13 @@ class TestRegressionMetrics:
             seen.update(warnings)
         assert len(seen) == 1, seen
 
-    def test_an_all_zero_target_omits_mape_rather_than_inventing_it(self):
+    def test_an_all_zero_target_omits_the_percentage_rather_than_inventing_it(self):
         y_true = np.zeros(4)
         y_pred = np.array([1.0, 2.0, 3.0, 4.0])
         metrics, warnings = fold_metrics(
             y_true=y_true, y_pred=y_pred, y_proba=None, classes=[], task_type="regression"
         )
-        assert "mape" not in metrics
+        assert "median_ape" not in metrics
         assert any("every held-out target value was zero" in w for w in warnings)
 
     def test_rmse_is_the_root_of_mse(self):

@@ -840,6 +840,9 @@ def _label(metric: str) -> str:
         "pr_auc": "PR-AUC",
         "mae": "MAE",
         "median_ae": "Median absolute error",
+        "median_ape": "Median absolute percentage error",
+        # Kept so a report rebuilt from an artifact written before the switch to
+        # the median still renders a label rather than a bare key.
         "mape": "MAPE",
         "mse": "MSE",
         "rmse": "RMSE",
@@ -852,10 +855,11 @@ def _fmt(metric: str, value: float) -> str:
 
     Proportions get four decimals; regression errors are in the target's own
     units and can be enormous, so those get thousands separators instead of a
-    long decimal tail nobody reads. MAPE is a ratio and is shown as the
-    percentage it is, because "0.4312" invites being read as an error of 0.43.
+    long decimal tail nobody reads. A percentage error is a ratio and is shown
+    as the percentage it is, because "0.4312" invites being read as an error of
+    0.43.
     """
-    if metric == "mape":
+    if metric in {"median_ape", "mape"}:
         return f"{value * 100:,.1f}%"
     if metric in _PROPORTION_METRICS or abs(value) < 1000:
         return f"{value:.4f}"
