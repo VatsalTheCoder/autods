@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import io
 import logging
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 import joblib
 from langgraph.graph import END, START, StateGraph
@@ -75,6 +77,7 @@ from app.services.artifacts import (
     REPORT_ARTIFACT,
     REPORT_PDF_ARTIFACT,
     register_bytes_artifact,
+    register_file_artifact,
     register_json_artifact,
 )
 from app.services.retrieval import index_run
@@ -115,20 +118,39 @@ def cleaning_node(state: PipelineState) -> dict:
         plan=state["plan"],
     )
 
-    with SessionLocal() as db:
-        register_json_artifact(db, job_id, CLEANING_ARTIFACT, result.report)
-        # The cleaned dataset is stored so a reader can check the report's claims
-        # against the actual data, and so later sections have a defined starting
-        # point that is not "re-run cleaning and hope it matches".
-        register_bytes_artifact(
-            db,
-            job_id,
-            CLEANED_DATASET_ARTIFACT,
-            result.frame.to_csv(index=False).encode("utf-8"),
-            content_type="text/csv",
-            kind=ArtifactKind.CLEANED_DATASET,
-        )
-        db.commit()
+    # Written to disk and streamed, not built in memory. `to_csv().encode()`
+    # materialises the whole CSV as a str and then again as bytes: on a
+    # 285,000-row frame that was 279 MB of peak resident memory on top of the
+    # frame, and it OOM-killed the worker mid-run on creditcard.csv. Writing to
+    # a file costs no measurable peak -- pandas writes it in chunks, boto3 reads
+    # it back in chunks.
+    #
+    # The temporary file is removed whether the upload succeeds or fails; a
+    # worker that dies between the two leaves it in the container's own /tmp,
+    # which does not outlive the container.
+    with tempfile.NamedTemporaryFile(
+        prefix=f"autods-cleaned-{job_id}-", suffix=".csv", delete=False
+    ) as handle:
+        cleaned_path = Path(handle.name)
+    try:
+        result.frame.to_csv(cleaned_path, index=False)
+        with SessionLocal() as db:
+            register_json_artifact(db, job_id, CLEANING_ARTIFACT, result.report)
+            # The cleaned dataset is stored so a reader can check the report's
+            # claims against the actual data, and so later sections have a
+            # defined starting point that is not "re-run cleaning and hope it
+            # matches".
+            register_file_artifact(
+                db,
+                job_id,
+                CLEANED_DATASET_ARTIFACT,
+                cleaned_path,
+                content_type="text/csv",
+                kind=ArtifactKind.CLEANED_DATASET,
+            )
+            db.commit()
+    finally:
+        cleaned_path.unlink(missing_ok=True)
 
     return {"cleaned": result.frame, "cleaning_report": result.report}
 

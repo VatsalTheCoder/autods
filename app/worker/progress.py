@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.db import SessionLocal
 from app.models.agent_run import AgentRun, AgentRunStatus
@@ -104,6 +104,54 @@ def _update_node(
         if error is not None:
             run.error_message = error
         db.commit()
+
+
+def fail_job(job_id: int, reason: str) -> bool:
+    """Mark a job FAILED, but only if it is still RUNNING.
+
+    Conditional, not unconditional: this is called from signal handlers that
+    fire after the fact, and a job that has since completed, or been started
+    afresh, must not be dragged backwards by a late arrival.
+
+    Returns whether this call was the one that failed it.
+    """
+    with SessionLocal() as db:
+        changed = db.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == JobStatus.RUNNING)
+            .values(status=JobStatus.FAILED, error_message=reason)
+        ).rowcount
+        db.commit()
+    if changed:
+        logger.warning("Job %s marked failed: %s", job_id, reason)
+    return bool(changed)
+
+
+def running_job_ids() -> set[int]:
+    """Every job the database currently believes is running."""
+    with SessionLocal() as db:
+        rows = db.execute(select(Job.id).where(Job.status == JobStatus.RUNNING)).scalars().all()
+    return set(rows)
+
+
+def recover_orphaned_jobs(active_job_ids: set[int], reason: str) -> list[int]:
+    """Fail the RUNNING jobs that no live worker is executing.
+
+    A job's status is written from inside the task, so a worker killed outright
+    -- by the OOM killer, or by the container going away -- leaves its row
+    saying RUNNING for ever. Nothing else notices: the queue has acknowledged
+    the task and the API has no reason to look again. Job 6589 sat like that
+    after creditcard.csv exhausted the machine.
+
+    **``active_job_ids`` is the caller's evidence about what is genuinely
+    running**, gathered from the workers themselves rather than guessed from
+    timestamps. Anything in it is left alone, which is the whole safety property:
+    a second worker starting up beside a busy one must not fail the job its
+    neighbour is halfway through. A caller that cannot establish the set must
+    pass no set at all rather than an empty one -- see ``active_pipeline_jobs``.
+    """
+    orphaned = sorted(running_job_ids() - active_job_ids)
+    return [job_id for job_id in orphaned if fail_job(job_id, reason)]
 
 
 def set_job_status(job_id: int, status: JobStatus, error: str | None = None) -> None:

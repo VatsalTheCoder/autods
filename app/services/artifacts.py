@@ -22,12 +22,13 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.storage import artifact_key, download_bytes, upload_bytes
+from app.core.storage import artifact_key, download_bytes, upload_bytes, upload_fileobj
 from app.models.artifact import Artifact, ArtifactKind
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,63 @@ CRITIC_ARTIFACT = "critic_report.json"
 NARRATIVE_ARTIFACT = "narrative_report.json"
 REPORT_ARTIFACT = "report.md"
 REPORT_PDF_ARTIFACT = "report.pdf"
+
+
+def register_file_artifact(
+    db: Session,
+    job_id: int,
+    name: str,
+    path: str | Path,
+    *,
+    content_type: str,
+    kind: ArtifactKind,
+) -> Artifact:
+    """Store the file at ``path`` in S3 without reading it into memory.
+
+    The streaming twin of ``register_bytes_artifact``, for artifacts whose size
+    scales with the dataset rather than with the report. Holding one of those as
+    ``bytes`` is what the caller is trying to avoid, so taking ``bytes`` here
+    would defeat the point.
+
+    The cleaned dataset is the case this exists for. Serialising a 285,000-row
+    frame through ``to_csv().encode()`` cost 279 MB of peak resident memory on
+    top of the frame itself -- 168 MB of ``str``, then a ``bytes`` copy -- and
+    OOM-killed the worker on a 4 GiB machine. Writing to a file and streaming it
+    costs no measurable peak at all: pandas writes it in chunks and boto3 reads
+    it back in chunks.
+
+    The caller owns the file and is responsible for removing it; this only
+    reads it.
+    """
+    key = artifact_key(job_id, name)
+    size = Path(path).stat().st_size
+    with open(path, "rb") as fileobj:
+        upload_fileobj(key, fileobj, content_type=content_type)
+
+    existing = db.execute(
+        select(Artifact).where(Artifact.job_id == job_id, Artifact.name == name)
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        existing.s3_key = key
+        existing.content_type = content_type
+        existing.size_bytes = size
+        existing.kind = kind
+        artifact = existing
+    else:
+        artifact = Artifact(
+            job_id=job_id,
+            kind=kind,
+            name=name,
+            s3_key=key,
+            content_type=content_type,
+            size_bytes=size,
+        )
+        db.add(artifact)
+
+    db.flush()
+    logger.info("Registered artifact %s for job %s (%d bytes, streamed)", name, job_id, size)
+    return artifact
 
 
 def register_bytes_artifact(

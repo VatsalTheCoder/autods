@@ -165,7 +165,14 @@ services:
 
   worker:
     build: .
-    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info
+    # --concurrency=1, deliberately. The default is one child per CPU, which is
+    # four here, and the pool is not free even when idle: one parent plus four
+    # children measured 237 + 341 + 341 + 343 + 356 MB resident having done
+    # nothing at all. On a 4 GiB machine that already runs Postgres, MinIO and
+    # the API, four concurrent ML pipelines cannot fit -- a single job on
+    # creditcard.csv needed more than a quarter of the VM and was OOM-killed.
+    # One job at a time is slower and finishes; four is faster and does not.
+    command: celery -A app.worker.celery_app.celery_app worker --loglevel=info --concurrency=1
     environment:
       ENVIRONMENT: local
       DATABASE_URL: postgresql+psycopg://autods:autods@postgres:5432/autods
