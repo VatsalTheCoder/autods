@@ -50,7 +50,12 @@ from sklearn.metrics import (
 )
 
 from app.agents.schema_models import TaskType
-from app.ml.contracts import EvaluationReport, FoldScore, MetricSummary
+from app.ml.contracts import (
+    ConcentratedFoldError,
+    EvaluationReport,
+    FoldScore,
+    MetricSummary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +223,9 @@ def build_evaluation_report(
     n_rows: int,
     n_features: int,
     warnings: Sequence[str] = (),
+    concentrated_fold_error: ConcentratedFoldError | None = None,
+    shuffled: bool = False,
+    random_seed: int | None = None,
 ) -> EvaluationReport:
     """Aggregate per-fold metrics into the report artifact.
 
@@ -246,6 +254,9 @@ def build_evaluation_report(
         metrics=metrics,
         primary_metric=primary,
         warnings=list(warnings),
+        concentrated_fold_error=concentrated_fold_error,
+        shuffled=shuffled,
+        random_seed=random_seed,
     )
     logger.info(
         "Evaluation: %s = %.4f across %d folds",

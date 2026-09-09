@@ -196,3 +196,84 @@ class TestResultMetadata:
     def test_folds_are_numbered_from_one(self):
         result = run(frame_of(100))
         assert [f.fold for f in result.folds] == [1, 2, 3, 4, 5]
+
+
+class TestConcentratedFoldError:
+    """Why one fold scored far below the others, when a few rows explain it.
+
+    Built from the Ames run: fold 3 scored R² 0.69 against a median of 0.888
+    because two of its 292 rows -- huge houses sold incomplete, at a third of
+    their built value -- produced 64% of its squared error. The report used to
+    answer every such spread with "more data would tighten it", which was the
+    opposite of the truth. Nothing about those two records improves with volume.
+    """
+
+    def _frame_with_one_liar(self, n: int = 200) -> pd.DataFrame:
+        """A tight linear target, then one row priced as if the trend did not exist.
+
+        The shape matters. The honest rows fit closely, so the fold's error is
+        almost entirely the one bad record -- which is what makes a *few rows*
+        the explanation rather than the dataset being hard. Its feature value is
+        deliberately unremarkable and its price sits inside the target's ordinary
+        range, so a quantile fence on the target could never find it.
+        """
+        rng = np.random.default_rng(7)
+        x = rng.normal(0, 1, n)
+        frame = pd.DataFrame({"x1": x, "price": 100 + 50 * x + rng.normal(0, 0.5, n)})
+        frame.loc[0, ["x1", "price"]] = [0.0, 320.0]
+        return frame
+
+    def test_it_names_the_fold_and_the_rows_responsible(self):
+        result = run(self._frame_with_one_liar(), target="price", task_type="regression")
+        found = result.concentrated_fold_error
+        assert found is not None
+        assert found.n_dominant_rows <= 3
+        assert found.dominant_error_share >= 0.5
+        assert found.score < found.median_score
+
+    def test_it_says_more_data_would_not_help(self):
+        result = run(self._frame_with_one_liar(), target="price", task_type="regression")
+        assert "more rows would not close it" in result.concentrated_fold_error.note
+
+    def test_it_reports_what_the_fold_scores_without_them(self):
+        result = run(self._frame_with_one_liar(), target="price", task_type="regression")
+        found = result.concentrated_fold_error
+        assert found.score_without_dominant > found.score
+
+    def test_it_stays_quiet_when_the_folds_agree(self):
+        """A diagnosis that fires on every run teaches the reader to skip it."""
+        rng = np.random.default_rng(0)
+        n = 200
+        x = rng.normal(0, 1, n)
+        frame = pd.DataFrame({"x1": x, "price": 100 + 20 * x + rng.normal(0, 1, n)})
+        result = run(frame, target="price", task_type="regression")
+        assert result.concentrated_fold_error is None
+
+    def test_it_stays_quiet_when_the_error_is_spread_evenly(self):
+        """A fold that is simply harder is not this finding."""
+        rng = np.random.default_rng(3)
+        n = 200
+        frame = pd.DataFrame({"x1": rng.normal(0, 1, n), "price": rng.normal(100, 30, n)})
+        result = run(frame, target="price", task_type="regression")
+        found = result.concentrated_fold_error
+        # Pure noise: no small set of rows owns the error, whatever the spread.
+        assert found is None or found.n_dominant_rows > 3
+
+    def test_classification_runs_produce_no_diagnosis(self):
+        """Squared error of a label is not a thing, so this is regression-only."""
+        assert run(frame_of(100)).concentrated_fold_error is None
+
+
+class TestHowTheFoldsWereDrawn:
+    """The report states the split; these pin down what it is told."""
+
+    def test_a_shuffled_split_records_its_seed(self):
+        result = run(frame_of(100), random_seed=42)
+        assert result.shuffled is True
+        assert result.random_seed == 42
+
+    def test_a_time_ordered_split_is_not_shuffled(self):
+        frame = frame_of(100)
+        frame["signed_up"] = pd.date_range("2024-01-01", periods=100, freq="D")
+        result = run(frame, time_column="signed_up")
+        assert result.shuffled is False

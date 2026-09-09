@@ -12,7 +12,6 @@ where the build plan wants test coverage concentrated.
 
 from __future__ import annotations
 
-import io
 import re
 
 import numpy as np
@@ -27,6 +26,7 @@ from app.agents.schema_models import (
     TaskType,
 )
 from app.ml.target import MIN_SKEW_FOR_LOG
+from app.services.csv_validation import NOT_APPLICABLE, read_frame
 
 # Regexes for the PII the spec calls out (7.1). Deliberately conservative:
 # better to miss a borderline case and let the user tick the box than to flag
@@ -54,8 +54,14 @@ def read_csv_frame(data: bytes) -> pd.DataFrame:
     The upload route has already run ``inspect_csv`` on these bytes, so parsing
     is known to succeed; this just re-materialises the frame that validation
     discarded, keeping profiling decoupled from the validation step.
+
+    Delegates to ``csv_validation.read_frame`` rather than calling pandas
+    directly, so that the frame profiled here is byte-for-byte the frame the
+    upload preview showed and the pipeline will later model. Reading a CSV twice
+    with two sets of rules is how a column comes to be a category in one stage
+    and a gap in the next.
     """
-    return pd.read_csv(io.BytesIO(data))
+    return read_frame(data)
 
 
 def profile_dataset(frame: pd.DataFrame) -> SchemaReport:
@@ -174,7 +180,13 @@ def _semantic_type(series: pd.Series) -> SemanticType:
 
 def _looks_like_datetime(non_null: pd.Series) -> bool:
     """True when a string column parses cleanly as dates on a sample."""
-    sample = non_null.astype(str).str.strip().head(_PII_SAMPLE)
+    # "NA" and friends survive the read now (``csv_validation.NOT_APPLICABLE``),
+    # so they reach this sample as ordinary strings and none of them parses as a
+    # date. Left in, a date column that uses "NA" for "never happened" -- a
+    # cancellation date, a discharge date -- would fail the threshold below and
+    # be filed as a category, and cleaning would then never convert it.
+    sample = non_null.astype(str).str.strip()
+    sample = sample[~sample.isin(NOT_APPLICABLE)].head(_PII_SAMPLE)
     if sample.empty:
         return False
 

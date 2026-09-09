@@ -66,6 +66,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from app.agents.schema_models import TaskType
 from app.core.config import get_settings
 from app.ml.contracts import (
+    ConcentratedFoldError,
     FoldScore,
     Leaderboard,
     LeaderboardEntry,
@@ -257,6 +258,119 @@ class CrossValidationResult:
     # here so the report can say the models were fitted on a transformed target
     # -- the scores themselves are already back in the original units.
     target_transform: TargetTransform | None = None
+    # Why one fold scored far below the others, when a few of its rows explain
+    # it. None when the folds agree, or when no small set of rows is responsible.
+    concentrated_fold_error: ConcentratedFoldError | None = None
+    # Read off the splitter rather than assumed, so the report states what
+    # actually happened even when a caller supplies its own.
+    shuffled: bool = False
+    random_seed: int | None = None
+
+
+# How far below the median of the other folds the worst one must sit before it
+# is worth explaining rather than treating as ordinary spread. In R² terms 0.05
+# is roughly "a grade worse", and comfortably outside the fold-to-fold wobble a
+# well-behaved dataset shows.
+_FOLD_GAP_TO_EXPLAIN = 0.05
+
+# The share of a fold's squared error that counts as "most of it".
+_DOMINANT_ERROR_SHARE = 0.5
+
+# The largest fraction of a fold's rows that can be called a *few* rows. Above
+# this the error is diffuse, which is a different finding and not this one.
+_MAX_DOMINANT_FRACTION = 0.05
+
+
+def _diagnose_concentrated_error(
+    folds: list[FoldScore],
+    predictions: list[tuple[np.ndarray, np.ndarray]],
+    *,
+    metric: str,
+) -> ConcentratedFoldError | None:
+    """Find the worst fold, and say whether a few rows account for its score.
+
+    Returns None unless both halves hold: one fold is materially worse than the
+    others, *and* a small number of its rows own most of its squared error. Those
+    two together are what distinguish "this dataset is small" from "these
+    particular records are unlike the training data" -- advice that differs
+    completely, and which the report previously collapsed into a single sentence
+    recommending more data.
+
+    Deliberately silent when the error is spread evenly. A fold that is simply
+    harder is not a finding, and a diagnosis that fires on every run teaches a
+    reader to skip it.
+    """
+    scores = [fold.metrics.get(metric) for fold in folds]
+    if len(folds) < 3 or any(score is None for score in scores):
+        return None
+
+    worst = int(np.argmin(scores))
+    others = [s for i, s in enumerate(scores) if i != worst]
+    median = float(np.median(others))
+    if median - scores[worst] < _FOLD_GAP_TO_EXPLAIN:
+        return None
+
+    y_true, y_pred = predictions[worst]
+    errors = np.asarray((y_true - y_pred) ** 2, dtype=float)
+    total = float(errors.sum())
+    if not np.isfinite(total) or total <= 0:
+        return None
+
+    # The smallest set of rows accounting for most of the error, largest first.
+    order = np.argsort(-errors)
+    cumulative = np.cumsum(errors[order]) / total
+    n_dominant = int(np.searchsorted(cumulative, _DOMINANT_ERROR_SHARE) + 1)
+    if n_dominant > max(1, int(_MAX_DOMINANT_FRACTION * len(errors))):
+        return None
+
+    share = float(cumulative[n_dominant - 1])
+    without = _score_without(y_true, y_pred, drop=order[:n_dominant], metric=metric)
+    return ConcentratedFoldError(
+        score_without_dominant=without,
+        fold=folds[worst].fold,
+        metric=metric,
+        score=float(scores[worst]),
+        median_score=median,
+        n_test_rows=int(len(errors)),
+        n_dominant_rows=n_dominant,
+        dominant_error_share=share,
+        note=(
+            f"Fold {folds[worst].fold} scored {scores[worst]:.4f} against a median of "
+            f"{median:.4f} across the other folds. {n_dominant} of its "
+            f"{len(errors):,} held-out rows produce {share:.0%} of its squared "
+            "error, so the gap is those records rather than the size of the "
+            "dataset -- more rows would not close it."
+            + (f" Without them the fold scores {without:.4f}." if without is not None else "")
+        ),
+    )
+
+
+def _score_without(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    drop: np.ndarray,
+    metric: str,
+) -> float | None:
+    """The fold's score with the dominant rows removed.
+
+    Not a result and never presented as one -- it is how the report states the
+    *size* of the effect those rows are having. Reported only for R², where
+    "0.69 becomes 0.90" is immediately readable; an RMSE recomputed on a
+    different row set invites comparison with the RMSE above it, which would be
+    measured over different data.
+    """
+    if metric != "r2":
+        return None
+    keep = np.ones(len(y_true), dtype=bool)
+    keep[drop] = False
+    if keep.sum() < 2:
+        return None
+    kept_true, kept_pred = np.asarray(y_true)[keep], np.asarray(y_pred)[keep]
+    ss_tot = float(((kept_true - kept_true.mean()) ** 2).sum())
+    if ss_tot <= 0:
+        return None
+    return float(1.0 - ((kept_true - kept_pred) ** 2).sum() / ss_tot)
 
 
 def build_estimator(task_type: TaskType, *, random_seed: int):
@@ -550,6 +664,10 @@ def cross_validate_model(
     )
 
     folds: list[FoldScore] = []
+    # Held-out actuals and predictions per fold, kept only for regression and
+    # only so the diagnosis below can ask *which rows* a bad fold's error came
+    # from. Two float arrays per fold; discarded with this function's frame.
+    predictions: list[tuple[np.ndarray, np.ndarray]] = []
     for index, (train_idx, test_idx) in enumerate(splitter.split(X, y), start=1):
         # A fresh unfitted copy per fold. Without this, fold 2 would be scored by
         # a pipeline that had already seen fold 2's rows during fold 1's fit.
@@ -575,6 +693,9 @@ def cross_validate_model(
         )
         warnings.extend(w for w in fold_warnings if w not in warnings)
 
+        if task_type == "regression":
+            predictions.append((np.asarray(y_test, dtype=float), np.asarray(y_pred, dtype=float)))
+
         folds.append(
             FoldScore(
                 fold=index,
@@ -591,8 +712,19 @@ def cross_validate_model(
             len(test_idx),
         )
 
+    concentrated = (
+        _diagnose_concentrated_error(folds, predictions, metric="r2")
+        if task_type == "regression" and len(predictions) == len(folds)
+        else None
+    )
+    if concentrated is not None:
+        logger.info("Fold variance: %s", concentrated.note)
+
     return CrossValidationResult(
         folds=folds,
+        concentrated_fold_error=concentrated,
+        shuffled=bool(getattr(splitter, "shuffle", False)),
+        random_seed=getattr(splitter, "random_state", None),
         model_name=(
             candidate.name
             if candidate
