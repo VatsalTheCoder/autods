@@ -144,9 +144,20 @@ def predict_rows(db: Session, job_id: int, rows: list[dict[str, Any]]) -> Predic
         )
 
     supplied = {key for row in rows for key in row}
-    missing = [name for name in expected if name not in supplied]
     unexpected = sorted(supplied - set(known))
-    if len(missing) == len(expected):
+
+    # Reported per row, not pooled across them. A union meant one row supplying
+    # ``city`` cleared the report for every other row in the batch, so a caller
+    # sending fifty rows where two omitted a column was told nothing was
+    # missing -- and those two rows were still predicted, from a value the
+    # recipe never learned.
+    missing = [name for name in expected if any(name not in row for row in rows)]
+
+    # The refusal stays pooled, and deliberately so: it asks whether this
+    # request supplied *anything* usable, which is a question about the request
+    # rather than about any one row. Asking it per row would reject a batch
+    # where each row happens to omit a different column.
+    if not supplied.intersection(expected):
         raise PredictionError(
             "None of the model's input columns were supplied. It expects: "
             + ", ".join(expected[:10])
@@ -185,8 +196,18 @@ def _build_frame(rows: list[dict[str, Any]], info: FinalModelInfo) -> pd.DataFra
     """
     data: dict[str, list[Any]] = {}
     for column in info.feature_columns:
-        values = [row.get(column.name) for row in rows]
-        series = pd.Series(values, dtype="object")
+        # ``np.nan`` for an absent value, not ``None``. The difference is not
+        # cosmetic: SimpleImputer treats NaN as missing and ``None`` as an
+        # ordinary object, so an omitted category skipped the imputer entirely
+        # and reached OneHotEncoder as an unseen level -- encoded, with
+        # handle_unknown="ignore", as a row of zeros. A caller who left out
+        # ``city`` therefore got a different prediction from one who sent it as
+        # null, and neither got the most-frequent value the recipe learned.
+        #
+        # JSON null arrives as ``None`` too, so this fixes the explicit case
+        # along with the omitted one.
+        values = [row.get(column.name, np.nan) for row in rows]
+        series = pd.Series([np.nan if value is None else value for value in values], dtype="object")
         if any(token in column.dtype for token in _NUMERIC_DTYPES):
             # Coerced, not rejected: "41" from a form is a 41, and "n/a" is a
             # missing value the pipeline's imputer already has a rule for.
