@@ -260,9 +260,25 @@ def _groups(clustering: ClusteringReport | None) -> str:
     return "\n".join(lines)
 
 
+def _inline_code(text: str) -> str:
+    """Make ``text`` safe to sit inside a Markdown code span.
+
+    A filename is the one piece of this document the user chooses the bytes of,
+    and it lands inside backticks. A backtick in the name closes the span early
+    and everything after it is read as Markdown -- which is how a file called
+    ``report`x![](http://host/p.png)`.csv`` became an image tag in the HTML
+    handed to the PDF renderer, and a request to a host of the uploader's
+    choosing.
+
+    Backticks become single quotes and newlines become spaces. Nothing else
+    needs escaping: inside a code span, no other character is active.
+    """
+    return text.replace("`", "'").replace("\r", " ").replace("\n", " ")
+
+
 def _heading(filename: str, evaluation: EvaluationReport) -> str:
     return (
-        f"# Analysis of `{filename}`\n\n"
+        f"# Analysis of `{_inline_code(filename)}`\n\n"
         f"- **Target column:** `{evaluation.target_column}`\n"
         f"- **Task:** {evaluation.task_type}\n"
         f"- **Rows modelled:** {evaluation.n_rows:,}\n"

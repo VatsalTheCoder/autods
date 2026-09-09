@@ -128,6 +128,33 @@ class PdfError(RuntimeError):
     """The PDF could not be rendered, with a reason for the caller."""
 
 
+class RemoteResourceRefused(Exception):
+    """Raised instead of fetching anything the document asks for."""
+
+
+def _refuse_remote_resources(url: str, timeout: int = 10, ssl_context: object = None):
+    """WeasyPrint's fetcher, replaced with one that fetches nothing.
+
+    The report is assembled from artifacts this system wrote and embeds no
+    remote resources, so a fetcher that always refuses costs the document
+    nothing. What it buys is that a URL reaching the renderer cannot become a
+    request: WeasyPrint's default fetcher honours ``http``, ``https`` and
+    ``file``, and the renderer runs in the worker, inside the network where the
+    database and object storage live.
+
+    The filename is escaped at source as well (``report._inline_code``). Both,
+    because either alone is one edit away from being the only thing standing
+    between an uploaded filename and an outbound request -- and this half also
+    covers whatever else grows a URL into the report later.
+
+    A refusal is logged and does not fail the render: WeasyPrint treats an
+    unavailable resource as a missing image, which is the right outcome for a
+    document nobody should have put a resource into.
+    """
+    logger.warning("Refused a resource request from the report document: %r", url)
+    raise RemoteResourceRefused(url)
+
+
 def render_pdf(markdown_text: str, *, title: str = "AutoDS report") -> bytes:
     """Render finished Markdown to PDF bytes.
 
@@ -161,7 +188,9 @@ def render_pdf(markdown_text: str, *, title: str = "AutoDS report") -> bytes:
     )
 
     try:
-        rendered = HTML(string=document).write_pdf(stylesheets=[CSS(string=_STYLESHEET)])
+        rendered = HTML(string=document, url_fetcher=_refuse_remote_resources).write_pdf(
+            stylesheets=[CSS(string=_STYLESHEET)]
+        )
     except Exception as exc:  # noqa: BLE001 - WeasyPrint raises broadly
         raise PdfError(f"The report could not be rendered as a PDF: {exc}") from exc
 
