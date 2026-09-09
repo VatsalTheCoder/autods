@@ -212,6 +212,16 @@ def get_schema(job_id: int, db: Session = Depends(get_db)) -> SchemaReport:
     return SchemaReport.model_validate(payload)
 
 
+# The states a job can be confirmed *from*. UPLOADED is the ordinary path;
+# CONFIRMED is a user who reloaded the checkpoint before anything was dispatched
+# and confirmed again, which is harmless because nothing has run yet.
+#
+# Everything else is deliberately absent. QUEUED and RUNNING would double-
+# dispatch; COMPLETED and FAILED would restart a job whose artifacts already
+# exist and overwrite them in place.
+_CONFIRMABLE = frozenset({JobStatus.UPLOADED, JobStatus.CONFIRMED})
+
+
 @router.post(
     "/jobs",
     response_model=JobSummary,
@@ -231,6 +241,27 @@ def confirm_job(request: ConfirmJobRequest, db: Session = Depends(get_db)) -> Jo
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"No job {request.job_id}."
+        )
+
+    # A job is confirmed once. Confirming again used to reset the status to
+    # QUEUED and dispatch a second Celery task, with nothing on either side
+    # stopping it -- no status check here, no claim in the worker. Two runs then
+    # shared one job's rows: ``artifacts`` and ``agent_runs`` are both unique on
+    # (job_id, name) and upserted, and both runs write the same S3 keys, so they
+    # overwrite each other's output and each other's progress. A double-click on
+    # the confirm button was enough.
+    #
+    # Rerunning is not the same operation as confirming, and is not offered
+    # here: a new run means a new job, which keeps the first run's results
+    # intact rather than trampling them.
+    if job.status not in _CONFIRMABLE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Job {job.id} is {job.status} and has already been confirmed. "
+                "Upload the file again to start a new run; this one's results "
+                "are kept."
+            ),
         )
 
     stored = load_json_artifact(db, job.id, SCHEMA_ARTIFACT)

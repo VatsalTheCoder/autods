@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.db import SessionLocal
 from app.models.agent_run import AgentRun, AgentRunStatus
@@ -104,6 +104,57 @@ def _update_node(
         if error is not None:
             run.error_message = error
         db.commit()
+
+
+def claim_job(job_id: int) -> bool:
+    """Take ownership of a job's run, and say whether this caller got it.
+
+    The second half of the guard on ``POST /jobs``. That check reads the status
+    and the dispatch happens after it, so two requests arriving together can both
+    pass it -- a check in the API is inherently time-of-check-to-time-of-use, and
+    the queue will happily hold both tasks.
+
+    The conditional UPDATE is what settles it. ``WHERE status = QUEUED`` means
+    exactly one caller sees a row updated, and the database picks the winner
+    rather than the application guessing.
+
+    **Losing the claim and never having been queued are different things**, and
+    conflating them costs a diagnostic. A task that finds the job already RUNNING
+    is the duplicate this exists to stop, and declines. Anything else -- a job
+    called directly in a test or a script, in a state the queue would never
+    produce -- is let through so the pipeline's own validation can report what is
+    actually wrong with it. Swallowing those would turn "this job was never
+    confirmed" into a silent no-op, which is a worse answer than the error it
+    replaced.
+    """
+    with SessionLocal() as db:
+        won = db.execute(
+            update(Job)
+            .where(Job.id == job_id, Job.status == JobStatus.QUEUED)
+            .values(status=JobStatus.RUNNING)
+        ).rowcount
+        db.commit()
+        if won:
+            return True
+
+        job = db.get(Job, job_id)
+        if job is None:
+            logger.warning("claim_job: no job %s", job_id)
+            return False
+        if job.status is JobStatus.RUNNING:
+            logger.warning(
+                "Job %s is already running; declining to start a second pipeline "
+                "over the same artifacts.",
+                job_id,
+            )
+            return False
+
+        # Not queued, not running: an in-process caller. Preserve the old
+        # behaviour so whatever is wrong surfaces as the error it always was.
+        logger.info("Job %s was %s, not queued; running it directly.", job_id, job.status)
+        job.status = JobStatus.RUNNING
+        db.commit()
+        return True
 
 
 def set_job_status(job_id: int, status: JobStatus, error: str | None = None) -> None:

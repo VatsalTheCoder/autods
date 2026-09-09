@@ -209,6 +209,13 @@ def _render_confirmation(payload: dict) -> None:
             st.session_state["confirmed"] = resp.json()
         elif resp.status_code == 422:
             st.error(resp.json().get("detail", "The confirmation was rejected."))
+        elif resp.status_code == 409:
+            # Already confirmed -- most often a double-click. The API refuses
+            # rather than starting a second run over the first one's artifacts,
+            # so this is information, not a failure the user has to fix.
+            st.info(
+                resp.json().get("detail", "This job has already been confirmed."),
+            )
         else:
             st.error(f"Confirmation failed (HTTP {resp.status_code}).")
             st.code(resp.text, language=None)

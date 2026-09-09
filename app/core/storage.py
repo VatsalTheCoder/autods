@@ -128,6 +128,27 @@ def object_exists(key: str) -> bool:
         return False
 
 
+def object_version(key: str) -> str | None:
+    """A fingerprint that changes when the bytes at ``key`` change.
+
+    The object's ETag, which for a single-part upload is the MD5 of the content.
+    Callers use it to tell one version of an object from another without
+    downloading it -- a HEAD is a few hundred bytes against a model that may be
+    megabytes.
+
+    ``None`` when the object is missing or storage cannot answer. A caller that
+    cannot establish the version must treat what it holds as unverifiable rather
+    than assume it is current.
+    """
+    settings = get_settings()
+    try:
+        head = get_s3_client().head_object(Bucket=settings.s3_bucket, Key=key)
+    except ClientError:
+        return None
+    etag = head.get("ETag")
+    return etag.strip('"') if isinstance(etag, str) else None
+
+
 def presigned_url(key: str, expires_in: int = 3600) -> str:
     """Return a temporary URL for reading ``key``.
 
